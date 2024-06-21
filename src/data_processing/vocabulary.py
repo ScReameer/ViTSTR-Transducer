@@ -1,46 +1,38 @@
 import torch
-import pandas as pd
+import string
 
 class Vocabulary:
-    def __init__(self, text: pd.Series):
-        """Creates vocabulary for corpus of text
-
-        Args:
-            `text` (`pd.Series`): column from dataframe with captions
-            `freq_threshold` (`int`, optional): write words in vocabulary if word frequency >= `freq_threshold`, else word becomes `<UNK>`. Defaults to `5`.
-        """
+    def __init__(self):
+        """Creates vocabulary for corpus of text"""
         # self.tokenizer = get_tokenizer("basic_english")
-        self.idx2word = {0: "<PAD>", 1: "<SOS>", 2: "<EOS>"}
-        self.word2idx = {"<PAD>": 0, "<SOS>": 1, "<EOS>": 2}
-        self.text: pd.Series = text.copy().astype(str).apply(lambda x: x.lower())
+        self.idx2char = {0: "<PAD>", 1: "<START>", 2: "<END>", 3: '<UNK>'}
+        self.char2idx = {"<PAD>": 0, "<START>": 1, "<END>": 2, '<UNK>': 3}
+        self.vocab = string.digits + string.ascii_lowercase + string.punctuation + ' '
         self._build()
-        del self.text
+        del self.vocab
 
     def __len__(self):
-        return len(self.idx2word)
+        return len(self.idx2char)
 
     def _build(self):
         """Builds vocabulary"""
-        start_idx = 3
-        for sentence in self.text.tolist():
-            for word in sentence:
-                if word not in self.word2idx:
-                    self.word2idx[word] = start_idx
-                    self.idx2word[start_idx] = word
-                    start_idx += 1
+        start_idx = len(self.idx2char)
+        self.idx2char.update({idx: char for idx, char in enumerate(self.vocab, start_idx)})
+        self.char2idx.update({char: idx for idx, char in enumerate(self.vocab, start_idx)})
     
-    def numericalize(self, text: str):
-        """Processing raw text into tensor
+    def numericalize(self, word: str):
+        """Processing raw word into tensor
 
         Args:
-            `text` (`str`): raw string of sentence
+            `word` (`str`): raw word
 
         Returns:
-            `output` (`torch.Tensor`): tensor representation of sentence with shape `[sequence_length]`
+            `output` (`torch.Tensor`): tensor representation of word with shape `[word_length]`
         """
-        tokenized_text = list(text.lower())
-        # <SOS> ... <EOS>
-        output = [self.word2idx['<SOS>']] + [
-            self.word2idx[token] for token in tokenized_text
-        ] + [self.word2idx['<EOS>']]
+        lower_word = word.lower()
+        # <START> ... <END>
+        output = [self.char2idx['<START>']] + [
+            self.char2idx[char] if char in self.char2idx else self.char2idx['<UNK>']
+            for char in lower_word
+        ] + [self.char2idx['<END>']]
         return torch.tensor(output)

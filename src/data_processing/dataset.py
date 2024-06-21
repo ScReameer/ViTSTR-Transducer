@@ -2,7 +2,8 @@ from .vocabulary import Vocabulary
 
 import os
 import torch
-import cv2 as cv
+import lmdb
+import io
 import pandas as pd
 import numpy as np
 import plotly.express as px
@@ -22,6 +23,40 @@ TRANSFORMS = T.Compose([
         std=[0.229, 0.224, 0.225]
     )
 ])
+
+# Singleton
+class Database:
+    def __init__(self, root: str):
+        self.root = root
+        self.env = lmdb.open(root, readonly=True)
+
+class LmdbDataset(Dataset):
+    def __init__(self, db: Database, vocab: Vocabulary, transforms=TRANSFORMS):
+        self.transforms = transforms
+        self.vocab = vocab
+        self.db = db
+        with self.db.env.begin(write=False) as txn:
+            nSamples = int(txn.get('num-samples'.encode()))
+            self.nSamples = nSamples
+
+    def __len__(self):
+        return self.nSamples
+
+    def __getitem__(self, index):
+        index += 1
+        try:
+            with self.db.env.begin(write=False) as txn:
+                label_key = f'label-{index:09d}'.encode()
+                label = txn.get(label_key).decode('utf-8')
+                img_key = f'image-{index:09d}'.encode()
+                imgbuf = txn.get(img_key)
+            buf = io.BytesIO()
+            buf.write(imgbuf)
+            img = self.transforms(np.array(Image.open(buf).convert('RGB')))
+            target = self.vocab.numericalize(label)
+            return (img, target)
+        except:
+            return self.__getitem__(np.random.randint(0, self.nSamples))
 
 class FlickrDataset(Dataset):
     def __init__(
@@ -55,12 +90,6 @@ class FlickrDataset(Dataset):
             self.df = self.df[self.df.index.isin(valid)].reset_index()
         elif sample == 'test':
             self.df = self.df[self.df.index.isin(test)].reset_index()
-        # self.captions = self.df['utf8_string'].astype(str)
-        # self.image_name = self.df['file_name']
-        # self.bbox = self.df['bbox'].apply(lambda x: np.array(x, dtype=float))
-        # self.img_width = self.df['width']
-        # self.img_height = self.df['height']
-        # del self.df
         self.transforms = transforms
         
     def __len__(self):
@@ -79,7 +108,7 @@ class FlickrDataset(Dataset):
             img_tensor = self.transforms(image)
             return img_tensor, target
         except:
-            return self.__getitem__(idx + 1)
+            return self.__getitem__(np.random.randint(0, len(self)))
     
 class Collate:
     def __init__(self, pad_idx):

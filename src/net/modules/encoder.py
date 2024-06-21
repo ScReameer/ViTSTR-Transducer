@@ -29,3 +29,31 @@ class Encoder(nn.Module):
         # [B, H*W, feature_maps] -> [B, H*W, d_model]
         features = self.linear(features)
         return features
+    
+class ViTEncoder(nn.Module):
+    def __init__(self, d_model: int):
+        """Encoder class to extract feature maps from images
+
+        Args:
+            `d_model` (`int`): size of text embedding
+        """
+        super().__init__()
+        vit = models.vision_transformer.vit_b_32(weights=models.ViT_B_32_Weights.DEFAULT)
+        modules = list(vit.children())[:-2]
+        # [B, 768, H, W]
+        vit_output_channels = 768
+        self.vit = nn.Sequential(*modules).eval()
+        self.vit.requires_grad_(False)
+        self.linear = nn.Linear(
+            in_features=vit_output_channels,
+            out_features=d_model
+        )
+
+        
+    def forward(self, images: torch.Tensor) -> torch.Tensor:
+        features: torch.Tensor = self.vit(images)
+        # [B, feature_maps, H, W] -> [B, feature_maps, H*W] -> [B, H*W, feature_maps]
+        features = features.flatten(start_dim=-2, end_dim=-1).movedim(-1, 1)
+        # [B, H*W, feature_maps] -> [B, H*W, d_model]
+        features = self.linear(features)
+        return features

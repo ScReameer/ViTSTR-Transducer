@@ -1,6 +1,6 @@
 from ..data_processing.vocabulary import Vocabulary
 from .modules.decoder import Decoder
-from .modules.encoder import Encoder
+from .modules.encoder import Encoder, ViTEncoder
 
 import torch
 import lightning as L
@@ -43,7 +43,7 @@ class Model(L.LightningModule):
             lr_start=self.lr_start,
             gamma=self.gamma
         ))
-        self.encoder = Encoder(d_model)
+        self.encoder = ViTEncoder(d_model)
         self.decoder = Decoder(
             d_model=d_model,
             num_heads=num_heads,
