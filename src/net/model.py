@@ -1,6 +1,6 @@
 from ..data_processing.vocabulary import Vocabulary
 from .modules.decoder import Decoder
-from .modules.encoder import Encoder, ViTEncoder
+from .modules.encoder import ViTSTR
 
 import torch
 import lightning as L
@@ -8,13 +8,11 @@ from torch import nn, optim
 
 class Model(L.LightningModule):
     def __init__(
-        self, 
+        self,
+        # d_model: int,
         vocab: Vocabulary,
-        d_model: int, 
-        num_heads: int,
         lr_start: float,
         gamma: float,
-        dropout_rate=0.1
     ) -> None:
         """Encoder-decoder model with Transformer for image captioning task
 
@@ -27,42 +25,40 @@ class Model(L.LightningModule):
             `dropout_rate` (`float`, optional): droupout regularization. Defaults to `0.1`.
         """
         super().__init__()
+        # self.d_model = d_model
         self.vocab = vocab
-        self.pad_idx = self.vocab.word2idx['<PAD>']
-        self.sos_idx = self.vocab.word2idx['<SOS>']
-        self.eos_idx = self.vocab.word2idx['<EOS>']
+        # self.pad_idx = self.vocab.char2idx['<PAD>']
+        # self.sos_idx = self.vocab.char2idx['<START>']
+        # self.eos_idx = self.vocab.char2idx['<END>']
+        # self.unk_idx = self.vocab.char2idx['<UNK>']
         self.vocab_size = len(self.vocab)
-        self.d_model = d_model
         self.lr_start = lr_start
         self.gamma = gamma
         self.save_hyperparameters(dict(
             vocab_size=self.vocab_size,
-            d_model=d_model,
-            num_heads=num_heads,
-            dropout_rate=dropout_rate,
             lr_start=self.lr_start,
             gamma=self.gamma
         ))
-        self.encoder = ViTEncoder(d_model)
-        self.decoder = Decoder(
-            d_model=d_model,
-            num_heads=num_heads,
-            dropout_rate=dropout_rate,
-            vocab_size=self.vocab_size
-        )
+        self.encoder = ViTSTR()
+        self.encoder.reset_classifier(num_classes=self.vocab_size)
+        # self.encoder.requires_grad_(False)
+        # self.encoder.head.requires_grad_(True)
+
        
     def training_step(self, batch, batch_idx) -> torch.Tensor:
         self.train()
         imgs, captions = batch 
-        captions_input = captions[:, :-1] # [B, seq-1] without <EOS>
-        captions_expected = captions[:, 1:] # [B, seq-1] without <SOS>
-        sequence_length = captions_input.size(1)
-        tgt_mask = self.get_tgt_mask(sequence_length) # [B, seq_input, seq_input]
-        predicted = self.forward(imgs=imgs, captions=captions_input, tgt_mask=tgt_mask) # [B, seq_output, vocab_size]
+        predicted = self.forward(imgs=imgs, max_length=captions.size(1))
+        print(captions.shape, predicted.shape)
+        # if batch_idx % 500 == 0:
+        #     cap = ''.join([self.vocab.idx2char[idx] for idx in captions[0].tolist()])
+        #     pred = ''.join([self.vocab.idx2char[idx] for idx in predicted[0].argmax(-1).tolist()])
+        #     print(f'Target: {cap}')
+        #     print(f'Predicted: {pred}')
         loss: torch.Tensor = nn.functional.cross_entropy(
             predicted.contiguous().view(-1, self.vocab_size), # [B*seq_output, vocab_size]
-            captions_expected.contiguous().view(-1), # [B*seq_output]
-            ignore_index=self.pad_idx, # Ignore <PAD> token
+            captions.contiguous().view(-1), # [B*seq_output]
+            ignore_index=0, # Ignore <PAD> token
         )
         self.log('train_CE', loss, prog_bar=True, logger=self.logger, on_epoch=False, on_step=True)
         return loss
@@ -71,15 +67,12 @@ class Model(L.LightningModule):
         self.eval()
         with torch.no_grad():
             imgs, captions = batch 
-            captions_input = captions[:, :-1] # [B, seq-1] without <EOS>
-            captions_expected = captions[:, 1:] # [B, seq-1] without <SOS>
-            sequence_length = captions_input.size(1)
-            tgt_mask = self.get_tgt_mask(sequence_length) # [B, seq_input, seq_input]
-            predicted = self.forward(imgs=imgs, captions=captions_input, tgt_mask=tgt_mask) # [B, seq_output, vocab_size]
+            predicted = self.forward(imgs=imgs, max_length=captions.size(1))
+            print(captions.shape, predicted.shape)
             loss: torch.Tensor = nn.functional.cross_entropy(
                 predicted.contiguous().view(-1, self.vocab_size), # [B*seq_output, vocab_size]
-                captions_expected.contiguous().view(-1), # [B*seq_output]
-                ignore_index=self.pad_idx, # Ignore <PAD> token
+                captions.contiguous().view(-1), # [B*seq_output]
+                ignore_index=0, # Ignore <PAD> token
             )
             self.log('val_CE', loss, prog_bar=True, logger=self.logger, on_epoch=True, on_step=False)
             return loss
@@ -88,15 +81,11 @@ class Model(L.LightningModule):
         self.eval()
         with torch.no_grad():
             imgs, captions = batch 
-            captions_input = captions[:, :-1] # [B, seq-1] without <EOS>
-            captions_expected = captions[:, 1:] # [B, seq-1] without <SOS>
-            sequence_length = captions_input.size(1)
-            tgt_mask = self.get_tgt_mask(sequence_length) # [B, seq_input, seq_input]
-            predicted = self.forward(imgs=imgs, captions=captions_input, tgt_mask=tgt_mask) # [B, seq_output, vocab_size]
+            predicted = self.forward(imgs=imgs, max_length=captions.size(1))
             loss: torch.Tensor = nn.functional.cross_entropy(
                 predicted.contiguous().view(-1, self.vocab_size), # [B*seq_output, vocab_size]
-                captions_expected.contiguous().view(-1), # [B*seq_output]
-                ignore_index=self.pad_idx, # Ignore <PAD> token
+                captions.contiguous().view(-1), # [B*seq_output]
+                ignore_index=0, # Ignore <PAD> token
             )
             self.log('test_CE', loss, prog_bar=True, logger=None)
             return loss
@@ -109,10 +98,8 @@ class Model(L.LightningModule):
             'lr_scheduler': exp_scheduler
         }
     
-    def forward(self, imgs, captions, tgt_mask) -> torch.Tensor:
-        features = self.encoder(imgs) # [B, H*W, d_model]
-        predicted = self.decoder(src=features, tgt=captions, tgt_mask=tgt_mask) # [B, seq_output, vocab_size]
-        return predicted
+    def forward(self, imgs, max_length) -> torch.Tensor:
+        return self.encoder.forward(imgs, max_length) # [B, H*W, vocab_size]
     
     def predict(self, image: torch.Tensor, max_length=50) -> str:
         """Predict caption to image
