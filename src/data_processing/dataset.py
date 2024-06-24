@@ -15,8 +15,10 @@ TRANSFORMS = T.Compose([
     T.Resize((224, 224)),
     T.Normalize(
         # ImageNet mean and std
-        mean=[0.485, 0.456, 0.406],
-        std=[0.229, 0.224, 0.225]
+        # mean=[0.485, 0.456, 0.406],
+        # std=[0.229, 0.224, 0.225]
+        mean=[0.5],
+        std=[0.5]
     )
 ])
 
@@ -31,7 +33,7 @@ class Database:
         self.env = lmdb.open(root, readonly=True, max_readers=20, lock=False, readahead=False, meminit=False)
 
 class LmdbDataset(Dataset):
-    def __init__(self, db: Database, vocab: Vocabulary, transforms=TRANSFORMS):
+    def __init__(self, db: Database, vocab: Vocabulary, transforms=TRANSFORMS, sample=None):
         """Creates dataset with images and captions
 
         Args:
@@ -42,15 +44,22 @@ class LmdbDataset(Dataset):
         self.transforms = transforms
         self.vocab = vocab
         self.db = db
+        self.sample = sample
         with self.db.env.begin(write=False) as txn:
-            nSamples = int(txn.get('num-samples'.encode()))
-            self.nSamples = nSamples
+            n_samples = int(txn.get('num-samples'.encode()))
+            if sample is None:
+                self.n_samples = n_samples
+            else:
+                self.n_samples = n_samples // 2
 
     def __len__(self):
-        return self.nSamples
+        return self.n_samples
 
     def __getitem__(self, index):
-        index += 1
+        if self.sample == 'valid':
+            index += 1
+        elif self.sample == 'test':
+            index += self.n_samples
         try:
             with self.db.env.begin(write=False) as txn:
                 label_key = f'label-{index:09d}'.encode()
@@ -59,12 +68,11 @@ class LmdbDataset(Dataset):
                 imgbuf = txn.get(img_key)
             buf = io.BytesIO()
             buf.write(imgbuf)
-            img = self.transforms(np.array(Image.open(buf).convert('RGB')))
-            # target = self.vocab.numericalize(label)
-            target = self.vocab.encode(label)
+            img = self.transforms(np.array(Image.open(buf).convert('L')))
+            target = self.vocab.encode_word(label)
             return (img, target)
         except:
-            return self.__getitem__(np.random.randint(0, self.nSamples))
+            return self.__getitem__(np.random.randint(0, self.n_samples))
     
 class Collate:
     def __init__(self, pad_idx):

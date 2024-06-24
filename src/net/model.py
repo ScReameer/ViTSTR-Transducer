@@ -1,7 +1,9 @@
 from ..data_processing.vocabulary import Vocabulary
-from .modules.decoder import Decoder
-from .modules.encoder import ViTSTR
+from .encoder import ViTSTR
+import plotly.express as px
+import plotly.io as pio
 
+pio.renderers.default = 'png'
 import torch
 import lightning as L
 from torch import nn, optim
@@ -9,7 +11,9 @@ from torch import nn, optim
 class Model(L.LightningModule):
     def __init__(
         self,
-        # d_model: int,
+        input_channels: int,
+        d_model: int,
+        num_heads: int,
         vocab: Vocabulary,
         lr_start: float,
         gamma: float,
@@ -25,40 +29,38 @@ class Model(L.LightningModule):
             `dropout_rate` (`float`, optional): droupout regularization. Defaults to `0.1`.
         """
         super().__init__()
-        # self.d_model = d_model
         self.vocab = vocab
-        # self.pad_idx = self.vocab.char2idx['<PAD>']
-        # self.sos_idx = self.vocab.char2idx['<START>']
-        # self.eos_idx = self.vocab.char2idx['<END>']
-        # self.unk_idx = self.vocab.char2idx['<UNK>']
         self.vocab_size = len(self.vocab)
+        self.pad_idx = self.vocab.char2idx['<PAD>']
         self.lr_start = lr_start
         self.gamma = gamma
+        self.input_channels = input_channels
+        self.d_model = d_model
+        self.num_heads = num_heads
         self.save_hyperparameters(dict(
             vocab_size=self.vocab_size,
             lr_start=self.lr_start,
-            gamma=self.gamma
+            gamma=self.gamma,
+            d_model=self.d_model,
+            num_heads=self.num_heads,
+            input_channels=self.input_channels
         ))
-        self.encoder = ViTSTR()
-        self.encoder.reset_classifier(num_classes=self.vocab_size)
-        # self.encoder.requires_grad_(False)
-        # self.encoder.head.requires_grad_(True)
+        self.encoder = ViTSTR(
+            in_chans=self.input_channels,
+            embed_dim=self.d_model, 
+            num_classes=self.vocab_size,
+            num_heads=self.num_heads
+        )
 
        
     def training_step(self, batch, batch_idx) -> torch.Tensor:
         self.train()
         imgs, captions = batch 
         predicted = self.forward(imgs=imgs, max_length=captions.size(1))
-        print(captions.shape, predicted.shape)
-        # if batch_idx % 500 == 0:
-        #     cap = ''.join([self.vocab.idx2char[idx] for idx in captions[0].tolist()])
-        #     pred = ''.join([self.vocab.idx2char[idx] for idx in predicted[0].argmax(-1).tolist()])
-        #     print(f'Target: {cap}')
-        #     print(f'Predicted: {pred}')
         loss: torch.Tensor = nn.functional.cross_entropy(
             predicted.contiguous().view(-1, self.vocab_size), # [B*seq_output, vocab_size]
             captions.contiguous().view(-1), # [B*seq_output]
-            ignore_index=0, # Ignore <PAD> token
+            ignore_index=self.pad_idx, # Ignore <PAD> token
         )
         self.log('train_CE', loss, prog_bar=True, logger=self.logger, on_epoch=False, on_step=True)
         return loss
@@ -68,11 +70,10 @@ class Model(L.LightningModule):
         with torch.no_grad():
             imgs, captions = batch 
             predicted = self.forward(imgs=imgs, max_length=captions.size(1))
-            print(captions.shape, predicted.shape)
             loss: torch.Tensor = nn.functional.cross_entropy(
                 predicted.contiguous().view(-1, self.vocab_size), # [B*seq_output, vocab_size]
                 captions.contiguous().view(-1), # [B*seq_output]
-                ignore_index=0, # Ignore <PAD> token
+                ignore_index=self.pad_idx, # Ignore <PAD> token
             )
             self.log('val_CE', loss, prog_bar=True, logger=self.logger, on_epoch=True, on_step=False)
             return loss
@@ -85,7 +86,7 @@ class Model(L.LightningModule):
             loss: torch.Tensor = nn.functional.cross_entropy(
                 predicted.contiguous().view(-1, self.vocab_size), # [B*seq_output, vocab_size]
                 captions.contiguous().view(-1), # [B*seq_output]
-                ignore_index=0, # Ignore <PAD> token
+                ignore_index=self.pad_idx, # Ignore <PAD> token
             )
             self.log('test_CE', loss, prog_bar=True, logger=None)
             return loss
@@ -101,12 +102,12 @@ class Model(L.LightningModule):
     def forward(self, imgs, max_length) -> torch.Tensor:
         return self.encoder.forward(imgs, max_length) # [B, H*W, vocab_size]
     
-    def predict(self, image: torch.Tensor, max_length=50) -> str:
+    def predict(self, image: torch.Tensor, max_length=27) -> str:
         """Predict caption to image
 
         Args:
             `image` (`Tensor`): preprocessed (resized and normalized) image of shape `[C, H, W]`
-            `max_length` (`int`, optional): max output sentence length. Defaults to `50`.
+            `max_length` (`int`, optional): max output sentence length. Defaults to `27`.
 
         Returns:
             `caption` (`str`): predicted caption for image
@@ -114,42 +115,6 @@ class Model(L.LightningModule):
         device = image.device
         self.eval().to(device)
         image = image.unsqueeze(0)
-        y_input = torch.tensor([[self.sos_idx]], dtype=torch.long, device=device)
-
-        for _ in range(max_length):
-            # Get source mask
-            tgt_mask = self.get_tgt_mask(y_input.size(1)).to(device)
-            with torch.no_grad():
-                pred: torch.Tensor = self(image, y_input, tgt_mask)
-                next_item = pred.argmax(-1)[0, -1].item()
-                next_item = torch.tensor([[next_item]], device=device)
-                # Concatenate previous input with predicted best word
-                y_input = torch.cat((y_input, next_item), dim=1)
-                # Stop if model predicts end of sentence
-                if next_item.view(-1).item() == self.eos_idx:
-                    break
-                
-        result = y_input.view(-1).tolist()[1:-1]
-        return ' '.join([self.vocab.idx2word[idx] for idx in result])
-    
-    def get_tgt_mask(self, size: int) -> torch.Tensor:
-        """Generates a square matrix where the each row allows one word more to be seen
-
-        Args:
-            `size` (`int`): sequence length of target, for example if target have shape `[B, S]` then `size = S`
-
-        Returns:
-            `mask` (`torch.Tensor`): target mask for transformer
-        """
-        mask = torch.tril(torch.ones(size, size) == 1).float() # Lower triangular matrix
-        mask = mask.masked_fill(mask == 0, float('-inf')) # Convert zeros to -inf
-        mask = mask.masked_fill(mask == 1, float(0.0)) # Convert ones to 0
-        
-        # EX for size=5:
-        # [[0., -inf, -inf, -inf, -inf],
-        #  [0.,   0., -inf, -inf, -inf],
-        #  [0.,   0.,   0., -inf, -inf],
-        #  [0.,   0.,   0.,   0., -inf],
-        #  [0.,   0.,   0.,   0.,   0.]]
-        
-        return mask
+        with torch.no_grad():
+            predicted = self.forward(imgs=image, max_length=max_length)[0].argmax(-1)
+            return self.vocab.decode_word(predicted)
