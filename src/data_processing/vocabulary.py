@@ -43,5 +43,7 @@ class Vocabulary:
         Returns:
             `output` (`str`): decoded word
         """
-        output = [self.idx2char[idx] for idx in tensor.tolist()]
-        return ''.join(output)
+        output = ''.join([
+            self.idx2char[idx] 
+            for idx in tensor.tolist() if idx not in [self.char2idx['<PAD>'], self.char2idx['<START>'], self.char2idx['<END>']]])
+        return (output)

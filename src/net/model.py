@@ -1,9 +1,5 @@
 from ..data_processing.vocabulary import Vocabulary
 from .encoder import ViTSTR
-import plotly.express as px
-import plotly.io as pio
-
-pio.renderers.default = 'png'
 import torch
 import lightning as L
 from torch import nn, optim
@@ -15,8 +11,8 @@ class Model(L.LightningModule):
         d_model: int,
         num_heads: int,
         vocab: Vocabulary,
-        lr_start: float,
-        gamma: float,
+        lr_max: float,
+        lr_min: float,
     ) -> None:
         """Encoder-decoder model with Transformer for image captioning task
 
@@ -24,23 +20,23 @@ class Model(L.LightningModule):
             `vocab` (`Vocabulary`): vocabulary instance of `src.data_processing.vocabulary.Vocabulary`
             `d_model` (`int`): image feature map size, text embedding size and also hidden size of Transformer
             `num_heads` (`int`): heads of Transformer, `d_model` must be divisible by `num_heads` without remainder
-            `lr_start` (`float`): initial learning rate
-            `gamma` (`float`): gamma for exponential learning rate scheduler
+            `lr_max` (`float`): maximum learning rate
+            `lr_min` (`float`): minimum learning rate
             `dropout_rate` (`float`, optional): droupout regularization. Defaults to `0.1`.
         """
         super().__init__()
         self.vocab = vocab
         self.vocab_size = len(self.vocab)
         self.pad_idx = self.vocab.char2idx['<PAD>']
-        self.lr_start = lr_start
-        self.gamma = gamma
+        self.lr_max = lr_max
+        self.lr_min = lr_min
         self.input_channels = input_channels
         self.d_model = d_model
         self.num_heads = num_heads
         self.save_hyperparameters(dict(
             vocab_size=self.vocab_size,
-            lr_start=self.lr_start,
-            gamma=self.gamma,
+            lr_max=self.lr_max,
+            lr_min=self.lr_min,
             d_model=self.d_model,
             num_heads=self.num_heads,
             input_channels=self.input_channels
@@ -92,11 +88,12 @@ class Model(L.LightningModule):
             return loss
         
     def configure_optimizers(self) -> dict:
-        optimizer = optim.Adam(self.parameters(), lr=self.lr_start)
-        exp_scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma=self.gamma)
+        optimizer = optim.Adam(self.parameters(), lr=self.lr_max)
+        # exp_scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma=self.gamma)
+        cosine_scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=3, eta_min=self.lr_min)
         return {
             'optimizer': optimizer,
-            'lr_scheduler': exp_scheduler
+            'lr_scheduler': cosine_scheduler
         }
     
     def forward(self, imgs, max_length) -> torch.Tensor:

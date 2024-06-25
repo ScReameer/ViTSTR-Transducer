@@ -7,7 +7,7 @@ import joblib
 import pandas as pd
 
 class ImageCaptioner:
-    def __init__(self, checkpoint_path: str, captions_path=None, vocab_path='vocab/vocab.joblib') -> None:
+    def __init__(self, checkpoint_path: str, vocab_path='vocab/vocab.joblib') -> None:
         """Top-level class for image caption task
 
         Args:
@@ -21,13 +21,7 @@ class ImageCaptioner:
         if os.path.exists(vocab_path):
             self.vocab = joblib.load(vocab_path)
         else:
-            if captions_path:
-                vocab_df = pd.read_csv(captions_path, sep='|')[' comment']
-                self.vocab = Vocabulary(vocab_df)
-                os.mkdir('vocab')
-                joblib.dump(self.vocab, vocab_path)
-            else:
-                raise ValueError("captions_path cannot be None if vocabulary file don't exists")
+            raise ValueError(f"{vocab_path} doesn't exist")
         self.model = Model.load_from_checkpoint(checkpoint_path, vocab=self.vocab)
         self.predictor = Predictor()
         
