@@ -47,7 +47,7 @@ class Predictor:
             img, target = next(iter_loader)
             processed_img = img[0] # [C, H, W]
             target = target[0]
-            orig_img = self.inv_normalizer(image=processed_img)['image'].cpu().permute(1, 2, 0).numpy()[..., 0] # [H, W]
+            orig_img = self.inv_normalizer(image=processed_img.cpu().permute(1, 2, 0).numpy())['image'][..., 0] # [H, W]
             self._show_img_with_caption(processed_img, orig_img, model, target)
             
     def caption_single_image(self, path: str, model: Model) -> None:
@@ -64,7 +64,7 @@ class Predictor:
             orig_img = np.array(Image.open(path).convert('L')) # [H, W]
         except:
             raise ValueError(f'Wrong image path: {path}')
-        processed_img = self.transforms(image=orig_img)['image'][None, ...] # [1, H, W]
+        processed_img = torch.tensor(self.transforms(image=orig_img)['image'], device=DEVICE)[None, ...] # [1, H, W]
         self._show_img_with_caption(processed_img, orig_img, model)
         
     def _show_img_with_caption(self, processed_img: torch.Tensor, orig_img: np.ndarray, model: Model, target=None) -> None:
@@ -75,7 +75,7 @@ class Predictor:
             `orig_img` (`np.ndarray`): original image of shape `[H, W, C]`
             `model` (`Model`): model to predict caption
         """
-        prediction = model.predict(torch.tensor(processed_img, device=DEVICE))
+        prediction = model.predict(processed_img)
         print(f'Predicted caption: {prediction}')
         if target is not None:
             target = model.vocab.decode_word(target)
