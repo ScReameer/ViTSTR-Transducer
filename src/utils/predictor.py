@@ -5,7 +5,7 @@ import albumentations as A
 import numpy as np
 import plotly.io as pio
 import plotly.express as px
-
+from albumentations.pytorch import ToTensorV2
 from torch.utils.data import DataLoader
 from PIL import Image
 
@@ -20,9 +20,11 @@ STD = [1]
 RESIZE_TO = (224, 224)
 
 TRANSFORMS_EVAL = A.Compose([
-    A.ToFloat(max_value=255),
+    # A.ToFloat(max_value=255),
     A.Resize(height=224, width=224),
-    A.Normalize(mean=[0], std=[1])
+    A.Normalize(mean=[0], std=[1]),
+    ToTensorV2()
+    
 ])
 
 class Predictor:
@@ -45,9 +47,9 @@ class Predictor:
         iter_loader = iter(dataloader)
         for _ in range(n_samples):
             img, target = next(iter_loader)
-            processed_img = img[0] # [C, H, W]
+            processed_img = img[0].unsqueeze(0) # [B,C, H, W]
             target = target[0]
-            orig_img = self.inv_normalizer(image=processed_img.cpu().permute(1, 2, 0).numpy())['image'][..., 0] # [H, W]
+            orig_img = self.inv_normalizer(image=processed_img.cpu().numpy())['image'][0, 0, ...] # [H, W]
             self._show_img_with_caption(processed_img, orig_img, model, target)
             
     def caption_single_image(self, path: str, model: Model) -> None:
@@ -64,7 +66,7 @@ class Predictor:
             orig_img = np.array(Image.open(path).convert('L')) # [H, W]
         except:
             raise ValueError(f'Wrong image path: {path}')
-        processed_img = torch.tensor(self.transforms(image=orig_img)['image'], device=DEVICE)[None, ...] # [1, H, W]
+        processed_img = self.transforms(image=orig_img)['image'].unsqueeze(0) # [1, H, W]
         self._show_img_with_caption(processed_img, orig_img, model)
         
     def _show_img_with_caption(self, processed_img: torch.Tensor, orig_img: np.ndarray, model: Model, target=None) -> None:

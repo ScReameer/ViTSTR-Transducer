@@ -13,6 +13,7 @@ class Model(L.LightningModule):
         vocab: Vocabulary,
         lr_max: float,
         lr_min: float,
+        t_max : int,
     ) -> None:
         """Encoder-decoder model with Transformer for image captioning task
 
@@ -30,6 +31,7 @@ class Model(L.LightningModule):
         self.pad_idx = self.vocab.char2idx['<PAD>']
         self.lr_max = lr_max
         self.lr_min = lr_min
+        self.t_max = t_max
         self.input_channels = input_channels
         self.d_model = d_model
         self.num_heads = num_heads
@@ -89,8 +91,7 @@ class Model(L.LightningModule):
         
     def configure_optimizers(self) -> dict:
         optimizer = optim.Adam(self.parameters(), lr=self.lr_max)
-        # exp_scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma=self.gamma)
-        cosine_scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=3, eta_min=self.lr_min)
+        cosine_scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=self.t_max, eta_min=self.lr_min)
         return {
             'optimizer': optimizer,
             'lr_scheduler': cosine_scheduler
@@ -111,7 +112,7 @@ class Model(L.LightningModule):
         """
         device = image.device
         self.eval().to(device)
-        image = image.unsqueeze(0)
+        # image = image.unsqueeze(0)
         with torch.no_grad():
             predicted = self.forward(imgs=image, max_length=max_length)[0].argmax(-1)
             return self.vocab.decode_word(predicted)

@@ -4,23 +4,24 @@ import lmdb
 import io
 import numpy as np
 import albumentations as A
+import cv2 as cv
+from albumentations.pytorch import ToTensorV2
 from torch.utils.data import Dataset
 from torch.nn.utils.rnn import pad_sequence
 from PIL import Image
 
-TRANSFORMS_TRAIN = A.Compose([
-    A.ToFloat(max_value=255),
-    A.RandomBrightnessContrast(),
-    A.Rotate(p=0.3, limit=10),
+TRANSFORMS_EVAL = A.Compose([
     A.Resize(height=224, width=224),
-    A.Normalize(mean=[0], std=[1])
+    A.Normalize(mean=[0], std=[1]),
+    ToTensorV2()
+])
+TRANSFORMS_TRAIN = A.Compose([
+    A.RandomBrightnessContrast(),
+    A.Rotate(p=1, limit=10, border_mode=cv.BORDER_REPLICATE),
+    A.GaussNoise(p=1),
+    TRANSFORMS_EVAL
 ])
 
-TRANSFORMS_EVAL = A.Compose([
-    A.ToFloat(max_value=255),
-    A.Resize(height=224, width=224),
-    A.Normalize(mean=[0], std=[1])
-])
 
 class Database:
     def __init__(self, root: str, max_readers: int):
@@ -30,7 +31,14 @@ class Database:
             `root` (`str`): The root directory of the LMDB database.
         """
         self.root = root
-        self.env = lmdb.open(root, readonly=True, max_readers=max_readers, lock=False, readahead=False, meminit=False)
+        self.env = lmdb.open(
+            root, 
+            readonly=True, 
+            max_readers=max_readers, 
+            # lock=False, 
+            # readahead=False,
+            # meminit=False
+        )
 
 class LmdbDataset(Dataset):
     def __init__(self, db: Database, vocab: Vocabulary, sample, transforms=None):
@@ -39,7 +47,7 @@ class LmdbDataset(Dataset):
         Args:
             `db` (`Database`): lmdb database
             `vocab` (`Vocabulary`): `Vocabulary` class from `src.data_processing.vocabulary`
-            `transforms` (`T.Compose`, optional): transforms/augmentations for images. Defaults to `None`.
+            `transforms` (`A.Compose`, optional): transforms/augmentations for images. Defaults to `None`.
         """
         self.sample = sample
         if transforms:
@@ -50,7 +58,7 @@ class LmdbDataset(Dataset):
         self.db = db
         with self.db.env.begin(write=False) as txn:
             n_samples = int(txn.get('num-samples'.encode()))
-            if sample is None:
+            if sample in ('train', 'valid'):
                 self.n_samples = n_samples
             else:
                 self.n_samples = n_samples // 2
@@ -83,7 +91,7 @@ class Collate:
         self.pad_idx = pad_idx
     
     def __call__(self, batch):
-        imgs = [torch.tensor(item[0])[None, None, ...] for item in batch]
+        imgs = [item[0][None, ...] for item in batch]
         imgs = torch.cat(imgs, dim=0)
         targets = [item[1] for item in batch]
         targets = pad_sequence(targets, padding_value=self.pad_idx, batch_first=True)
