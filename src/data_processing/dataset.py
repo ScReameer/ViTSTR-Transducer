@@ -17,8 +17,8 @@ TRANSFORMS_EVAL = A.Compose([
 ])
 TRANSFORMS_TRAIN = A.Compose([
     A.RandomBrightnessContrast(),
-    A.Rotate(p=1, limit=10, border_mode=cv.BORDER_REPLICATE),
-    A.GaussNoise(p=1),
+    A.Rotate(limit=15, border_mode=cv.BORDER_REPLICATE),
+    A.GaussNoise(),
     TRANSFORMS_EVAL
 ])
 
@@ -35,9 +35,9 @@ class Database:
             root, 
             readonly=True, 
             max_readers=max_readers, 
-            # lock=False, 
-            # readahead=False,
-            # meminit=False
+            lock=False, 
+            readahead=False,
+            meminit=False
         )
 
 class LmdbDataset(Dataset):
@@ -58,7 +58,7 @@ class LmdbDataset(Dataset):
         self.db = db
         with self.db.env.begin(write=False) as txn:
             n_samples = int(txn.get('num-samples'.encode()))
-            if sample in ('train', 'valid'):
+            if sample == 'train':
                 self.n_samples = n_samples
             else:
                 self.n_samples = n_samples // 2
@@ -69,7 +69,7 @@ class LmdbDataset(Dataset):
     def __getitem__(self, index):
         if self.sample in ('train', 'valid'):
             index += 1
-        elif self.sample == 'test':
+        else:
             index += self.n_samples
         try:
             with self.db.env.begin(write=False) as txn:

@@ -82,5 +82,5 @@ class Predictor:
         if target is not None:
             target = model.vocab.decode_word(target)
             print(f'Target caption: {target}')
-        px.imshow(orig_img, color_continuous_scale='gray').update_xaxes(visible=False).update_yaxes(visible=False).show()
+        px.imshow(orig_img, color_continuous_scale='gray').update_xaxes(visible=False).update_yaxes(visible=False).update_layout(coloraxis_showscale=False).show()
         

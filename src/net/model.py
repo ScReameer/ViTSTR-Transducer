@@ -13,7 +13,8 @@ class Model(L.LightningModule):
         vocab: Vocabulary,
         lr_max: float,
         lr_min: float,
-        t_max : int,
+        t_max: int,
+        dropout_rate=0.1
     ) -> None:
         """Encoder-decoder model with Transformer for image captioning task
 
@@ -35,10 +36,12 @@ class Model(L.LightningModule):
         self.input_channels = input_channels
         self.d_model = d_model
         self.num_heads = num_heads
+        self.dropout_rate = dropout_rate
         self.save_hyperparameters(dict(
             vocab_size=self.vocab_size,
             lr_max=self.lr_max,
             lr_min=self.lr_min,
+            t_max=self.t_max,
             d_model=self.d_model,
             num_heads=self.num_heads,
             input_channels=self.input_channels
@@ -47,7 +50,8 @@ class Model(L.LightningModule):
             in_chans=self.input_channels,
             embed_dim=self.d_model, 
             num_classes=self.vocab_size,
-            num_heads=self.num_heads
+            num_heads=self.num_heads,
+            drop_rate=dropout_rate
         )
 
        
