@@ -17,7 +17,7 @@ TRANSFORMS_EVAL = A.Compose([
 ])
 TRANSFORMS_TRAIN = A.Compose([
     A.RandomBrightnessContrast(),
-    A.Rotate(limit=15, border_mode=cv.BORDER_REPLICATE),
+    # A.Rotate(limit=15, border_mode=cv.BORDER_REPLICATE),
     A.GaussNoise(),
     TRANSFORMS_EVAL
 ])
@@ -58,10 +58,10 @@ class LmdbDataset(Dataset):
         self.db = db
         with self.db.env.begin(write=False) as txn:
             n_samples = int(txn.get('num-samples'.encode()))
-            if sample == 'train':
-                self.n_samples = n_samples
-            else:
-                self.n_samples = n_samples // 2
+            # if sample == 'train':
+                # self.n_samples = n_samples
+            # else:
+            self.n_samples = n_samples // 2
 
     def __len__(self):
         return self.n_samples
@@ -71,20 +71,18 @@ class LmdbDataset(Dataset):
             index += 1
         else:
             index += self.n_samples
-        try:
-            with self.db.env.begin(write=False) as txn:
-                label_key = f'label-{index:09d}'.encode()
-                label = txn.get(label_key).decode('utf-8')
-                img_key = f'image-{index:09d}'.encode()
-                imgbuf = txn.get(img_key)
-            buf = io.BytesIO()
-            buf.write(imgbuf)
-            img = np.array(Image.open(buf).convert('L'))
-            img = self.transforms(image=img)['image']
-            target = self.vocab.encode_word(label)
-            return (img, target)
-        except:
-            return self.__getitem__(np.random.randint(0, self.n_samples))
+        with self.db.env.begin(write=False) as txn:
+            label_key = f'label-{index:09d}'.encode()
+            label = txn.get(label_key).decode('utf-8')
+            img_key = f'image-{index:09d}'.encode()
+            imgbuf = txn.get(img_key)
+        buf = io.BytesIO()
+        buf.write(imgbuf)
+        img = np.array(Image.open(buf).convert('L'))
+        img = self.transforms(image=img)['image']
+        target = self.vocab.encode_word(label)
+        return (img, target)
+            # return self.__getitem__(np.random.randint(0, self.n_samples))
     
 class Collate:
     def __init__(self, pad_idx):

@@ -57,7 +57,7 @@ class History:
         lr_fig.add_trace(
             go.Scatter(
                 x=epochs,
-                y=self.df['lr-Adam'],
+                y=self.df['lr-RAdam'],
                 marker=dict(color='#a653ec')
             )
         )

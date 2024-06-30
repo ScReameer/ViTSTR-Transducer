@@ -30,7 +30,7 @@ class ViTSTR(VisionTransformer):
         x = x[:, :seqlen]
 
         # batch, seqlen, embsize
-        b, s, e = x.size()
-        x = x.reshape(b*s, e)
-        x = self.head(x).view(b, s, self.num_classes)
+        # b, s, e = x.size()
+        # x = x.reshape(b*s, e)
+        # x = self.head(x).view(b, s, self.num_classes)
         return x

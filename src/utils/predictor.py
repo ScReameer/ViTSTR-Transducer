@@ -77,7 +77,7 @@ class Predictor:
             `orig_img` (`np.ndarray`): original image of shape `[H, W, C]`
             `model` (`Model`): model to predict caption
         """
-        prediction = model.predict(processed_img)
+        prediction = model.predict(processed_img[0])
         print(f'Predicted caption: {prediction}')
         if target is not None:
             target = model.vocab.decode_word(target)
