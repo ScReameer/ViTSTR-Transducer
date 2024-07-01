@@ -53,15 +53,15 @@ class LmdbDataset(Dataset):
         if transforms:
             self.transforms = transforms
         else:
-            self.transforms = TRANSFORMS_TRAIN if sample == 'train' else TRANSFORMS_EVAL
+            self.transforms = TRANSFORMS_TRAIN if self.sample == 'train' else TRANSFORMS_EVAL
         self.vocab = vocab
         self.db = db
         with self.db.env.begin(write=False) as txn:
             n_samples = int(txn.get('num-samples'.encode()))
-            # if sample == 'train':
-                # self.n_samples = n_samples
-            # else:
-            self.n_samples = n_samples // 2
+            if sample == 'train':
+                self.n_samples = n_samples
+            else:
+                self.n_samples = n_samples // 2
 
     def __len__(self):
         return self.n_samples

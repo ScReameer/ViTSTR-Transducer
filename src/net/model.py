@@ -5,14 +5,6 @@ import lightning as L
 from torch import nn, optim
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
-from PIL import Image
-import numpy as np
-
-# ImageNet mean and std
-MEAN = [0]
-STD = [1]
-# ResNet input image size
-RESIZE_TO = (224, 224)
 
 TRANSFORMS_EVAL = A.Compose([
     # A.ToFloat(max_value=255),
@@ -97,13 +89,6 @@ class Model(L.LightningModule):
             target_expected.contiguous().view(-1), # [B*seq_output]
             ignore_index=self.pad_idx, # Ignore <PAD> token
         )
-        if batch_idx % 100 == 0:
-            orig_img = np.array(Image.open('/mnt/s/CV/text_recognition_examples/pepsi.jpg').convert('L'))
-            processed_img = TRANSFORMS_EVAL(image=orig_img)['image'].cuda()
-            predicted_string = self.predict(processed_img)
-            # predicted_string = self.vocab.decode_word(predicted[64].argmax(dim=-1))
-            print(f'Target: pepsi')
-            print(f'Predicted: {predicted_string}\n')
         self.log('train_CE', loss, prog_bar=True, logger=self.logger, on_epoch=False, on_step=True)
         return loss
     
