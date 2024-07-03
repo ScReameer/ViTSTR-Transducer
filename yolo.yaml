@@ -1,8 +1,0 @@
-task: detect
-path: /mnt/s/CV/STR_yolo # dataset root dir
-train: images/train # train images (relative to 'path')
-val: images/val # val images (relative to 'path') 
-# test: images/test # test images
-
-names:
-  0: text

@@ -1,22 +1,26 @@
 from .data_processing.vocabulary import Vocabulary
-from .net.model import Model
+from .net.model import ViTSTRTransducer
 from .utils.predictor import Predictor
 
 class ImageCaptioner:
     def __init__(self, checkpoint_path: str) -> None:
-        """Top-level class for image caption task
+        """Top-level text recognition class using ViTSTR-Transducer
 
         Args:
             `checkpoint_path` (`str`): path to trained checkpoint of model
         """
         self.vocab = Vocabulary()
-        self.model = Model.load_from_checkpoint(checkpoint_path, vocab=self.vocab)
+        self.model = ViTSTRTransducer.load_from_checkpoint(checkpoint_path, vocab=self.vocab).eval()
         self.predictor = Predictor()
         
-    def caption_image(self, path_or_url: str) -> None:
-        """Print predicted caption and draw image
+    def caption_image(self, path: str, show_img=True) -> str:
+        """Caption single image
 
         Args:
-            `path_or_url` (`str`): path or URL to img
+            `path` (`str`): path to img
+            `show_img` (`bool`, optional): flag to show image with predicted caption. Defaults to `True`.
+            
+        Returns:
+            `output` (`str`): predicted caption
         """
-        self.predictor.caption_single_image(path_or_url, self.model)
+        return self.predictor.caption_single_image(path, self.model, show_img=show_img)

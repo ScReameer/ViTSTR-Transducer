@@ -1,5 +1,4 @@
-from ..net.model import Model
-
+from ..net.model import ViTSTRTransducer
 import torch
 import albumentations as A
 import numpy as np
@@ -13,18 +12,15 @@ pio.renderers.default = 'png'
 pio.templates.default = 'plotly_dark'
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
-# ImageNet mean and std
+# Mean and std used while training
 MEAN = [0]
 STD = [1]
-# ResNet input image size
-RESIZE_TO = (224, 224)
-
+RESIZE = dict(height=224, width=224)
+# Transforms for evaluation
 TRANSFORMS_EVAL = A.Compose([
-    # A.ToFloat(max_value=255),
-    A.Resize(height=224, width=224),
-    A.Normalize(mean=[0], std=[1]),
+    A.Resize(**RESIZE),
+    A.Normalize(mean=MEAN, std=STD),
     ToTensorV2()
-    
 ])
 
 class Predictor:
@@ -36,7 +32,7 @@ class Predictor:
         )
         self.transforms = TRANSFORMS_EVAL
     
-    def caption_dataloader(self, dataloader: DataLoader, model: Model, n_samples=5) -> None:
+    def caption_dataloader(self, dataloader: DataLoader, model: ViTSTRTransducer, n_samples=5) -> None:
         """Draw n samples from given dataloader with predicted caption
 
         Args:
@@ -52,35 +48,60 @@ class Predictor:
             orig_img = self.inv_normalizer(image=processed_img.cpu().numpy())['image'][0, 0, ...] # [H, W]
             self._show_img_with_caption(processed_img, orig_img, model, target)
             
-    def caption_single_image(self, path: str, model: Model) -> None:
-        """Draw image from path or URL with predicted caption
+    def caption_single_image(self, path: str, model: ViTSTRTransducer, show_img) -> str:
+        """Draw image from path with predicted caption
 
         Args:
-            `path` (`str`): path to image. Image must have 3 (RGB) or 4 (RGBA) channels, otherwise raises `ValueError`
+            `path` (`str`): path to image
             `model` (`Model`): model to predict caption
 
+        Returns:
+            `output` (`str`): predicted caption
+        
         Raises:
-            `ValueError`: image channels < 3
+            `ValueError`: wrong image path
         """
         try:
             orig_img = np.array(Image.open(path).convert('L')) # [H, W]
         except:
             raise ValueError(f'Wrong image path: {path}')
         processed_img = self.transforms(image=orig_img)['image'].unsqueeze(0) # [1, H, W]
-        self._show_img_with_caption(processed_img, orig_img, model)
+        return self._show_img_with_caption(processed_img, orig_img, model, show_img=show_img)
         
-    def _show_img_with_caption(self, processed_img: torch.Tensor, orig_img: np.ndarray, model: Model, target=None) -> None:
+    def _show_img_with_caption(
+        self, 
+        processed_img: torch.Tensor, 
+        orig_img: np.ndarray, 
+        model: ViTSTRTransducer,
+        show_img: bool,
+        target=None,
+    ) -> str:
         """Aux func to draw image and print caption
 
         Args:
             `processed_img` (`torch.Tensor`): transformed image of shape `[C, H, W]`
             `orig_img` (`np.ndarray`): original image of shape `[H, W, C]`
             `model` (`Model`): model to predict caption
+            
+        Returns:
+            `prediction` (`str`): predicted caption
         """
         prediction = model.predict(processed_img[0])
-        print(f'Predicted caption: {prediction}')
-        if target is not None:
-            target = model.vocab.decode_word(target)
-            print(f'Target caption: {target}')
-        px.imshow(orig_img, color_continuous_scale='gray').update_xaxes(visible=False).update_yaxes(visible=False).update_layout(coloraxis_showscale=False).show()
+        prediction = model.vocab.decode_word(prediction)
+        if show_img:
+            print(f'Predicted caption: {prediction}')
+            if target is not None:
+                target = model.vocab.decode_word(target)
+                print(f'Target caption: {target}')
+            px.imshow(
+                orig_img, 
+                color_continuous_scale='gray'
+            ).update_xaxes(
+                visible=False
+            ).update_yaxes(
+                visible=False
+            ).update_layout(
+                coloraxis_showscale=False
+            ).show()
+        return prediction
         

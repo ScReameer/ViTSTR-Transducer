@@ -17,11 +17,11 @@ TRANSFORMS_EVAL = A.Compose([
 ])
 TRANSFORMS_TRAIN = A.Compose([
     A.RandomBrightnessContrast(),
-    # A.Rotate(limit=15, border_mode=cv.BORDER_REPLICATE),
+    A.Rotate(limit=15, border_mode=cv.BORDER_REPLICATE),
+    A.GaussianBlur(),
     A.GaussNoise(),
     TRANSFORMS_EVAL
 ])
-
 
 class Database:
     def __init__(self, root: str, max_readers: int):
@@ -29,6 +29,7 @@ class Database:
 
         Args:
             `root` (`str`): The root directory of the LMDB database.
+            `max_readers` (`int`): The maximum number of readers (threads) for the LMDB database.
         """
         self.root = root
         self.env = lmdb.open(
@@ -41,12 +42,13 @@ class Database:
         )
 
 class LmdbDataset(Dataset):
-    def __init__(self, db: Database, vocab: Vocabulary, sample, transforms=None):
+    def __init__(self, db: Database, vocab: Vocabulary, sample: str, transforms=None):
         """Creates dataset with images and captions
 
         Args:
             `db` (`Database`): lmdb database
             `vocab` (`Vocabulary`): `Vocabulary` class from `src.data_processing.vocabulary`
+            `sample` (`str`): 'train', 'valid' or 'test'
             `transforms` (`A.Compose`, optional): transforms/augmentations for images. Defaults to `None`.
         """
         self.sample = sample
@@ -58,19 +60,14 @@ class LmdbDataset(Dataset):
         self.db = db
         with self.db.env.begin(write=False) as txn:
             n_samples = int(txn.get('num-samples'.encode()))
-            if sample == 'train':
-                self.n_samples = n_samples
-            else:
-                self.n_samples = n_samples // 2
+        self.n_samples = n_samples
 
     def __len__(self):
         return self.n_samples
 
     def __getitem__(self, index):
-        if self.sample in ('train', 'valid'):
-            index += 1
-        else:
-            index += self.n_samples
+        # Indexes in LMDB dataset starts from 1
+        index += 1
         with self.db.env.begin(write=False) as txn:
             label_key = f'label-{index:09d}'.encode()
             label = txn.get(label_key).decode('utf-8')
@@ -78,11 +75,10 @@ class LmdbDataset(Dataset):
             imgbuf = txn.get(img_key)
         buf = io.BytesIO()
         buf.write(imgbuf)
-        img = np.array(Image.open(buf).convert('L'))
-        img = self.transforms(image=img)['image']
-        target = self.vocab.encode_word(label)
+        img = np.array(Image.open(buf).convert('L')) # [H, W] grayscale
+        img = self.transforms(image=img)['image'] # [1, H, W]
+        target = self.vocab.encode_word(label) # [Seq]
         return (img, target)
-            # return self.__getitem__(np.random.randint(0, self.n_samples))
     
 class Collate:
     def __init__(self, pad_idx):
