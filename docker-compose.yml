@@ -1,0 +1,10 @@
+services:
+  vitstr:
+    image: vitstr:latest
+    build: ./
+    volumes:
+      - ./outputs:/src/outputs:rw
+      - /home/vadim/DL/github/OCR-STR-dataset/dataset/:/dataset:ro
+      - ./vitstr_backbone:/src/vitstr_backbone:rw
+    ipc: host
+    gpus: all
