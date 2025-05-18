@@ -1,5 +1,9 @@
 *.ckpt
 *.pt
+*output*
+*.pth
+*.torchscript
 __*
+!__init__.py
 runs
 logs

@@ -1,45 +1,42 @@
 import torch
-import string
+import re
 
 class Vocabulary:
-    def __init__(self):
-        """Creates vocabulary for corpus of text"""
-        self.idx2char = {0: "<PAD>", 1: '<START>',  2: "<END>"}
-        self.char2idx = {"<PAD>": 0, "<START>": 1, "<END>": 2}
-        self.vocab = string.digits + string.ascii_lowercase + string.punctuation + ' '
+    def __init__(self, labels: list):
+        """
+        Initializes a Vocabulary object with the given list of labels.
+        
+        Args:
+            `labels` (`list`): A list of labels to be used in the vocabulary.
+        """
+        self.idx2token = {0: "<PAD>", 1: '<START>',  2: "<END>"}
+        self.token2idx = {"<PAD>": 0, "<START>": 1, "<END>": 2}
+        self.labels = labels
         self._build()
-        del self.vocab
+        del self.labels
 
     def __len__(self):
-        return len(self.idx2char)
+        return len(self.idx2token)
 
     def _build(self):
         """Builds vocabulary"""
-        start_idx = len(self.idx2char)
-        self.idx2char.update({idx: char for idx, char in enumerate(self.vocab, start_idx)})
-        self.char2idx.update({char: idx for idx, char in enumerate(self.vocab, start_idx)})
+        start_idx = len(self.idx2token)
+        self.idx2token.update({idx: char for idx, char in enumerate(self.labels, start_idx)})
+        self.token2idx.update({char: idx for idx, char in enumerate(self.labels, start_idx)})
     
-    def encode_word(self, word: str):
-        """Processing raw word into tensor
 
-        Args:
-            `word` (`str`): raw word
+    def contains_cyrillic(self, text: str) -> bool:
+        return bool(re.search(r'[а-яА-ЯёЁ]', text))
 
-        Returns:
-            `output` (`torch.Tensor`): tensor representation of word with shape `[word_length]`
-        """
-        lower_word = word.lower()
+    
+    def encode(self, text: str):
+        text = text.lower()
+        for char in text:
+            if char not in self.token2idx:
+                text = text.replace(char, '')
         # <START> ... <END>
-        output = [self.char2idx['<START>']] + [self.char2idx[char]for char in lower_word] + [self.char2idx['<END>']]
+        output = [self.token2idx['<START>']] + [self.token2idx[digit]for digit in text] + [self.token2idx['<END>']]
         return torch.tensor(output)
     
-    def decode_word(self, tensor: torch.Tensor):
-        """Processing tensor into word
-
-        Args:
-            `tensor` (`torch.Tensor`): tensor representation of word with shape `[word_length]`
-
-        Returns:
-            `output` (`str`): decoded word
-        """
-        return ''.join([self.idx2char[idx] for idx in tensor.tolist()])
+    def decode(self, tensor: torch.Tensor):
+        return ''.join([self.idx2token[idx] for idx in tensor.tolist()])
