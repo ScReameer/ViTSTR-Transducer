@@ -4,16 +4,16 @@ ClearML:
   PROJECT: 'ViTSTR-T' # ClearML project name
   TASK: 'text-recognition' # ClearML task name
 DATASET:
-  PATH: '/home/vadim/DL/github/OCR-STR-dataset/dataset' # Relative or absolute path to dataset with 'train', 'val' and 'test' folders
+  # PATH: '/home/vadim/DL/github/OCR-STR-dataset/dataset' # Relative or absolute path to dataset with 'train', 'val' and 'test' folders
   TYPE: 'json' # "lmdb" or "json"
-  # PATH: '/home/vadim/DL/ocr_dataset'
+  PATH: '/dataset'
 ViTSTR-T:
   # Pretrained weights for training, should be 'vit' or 'vitstr_tiny' or 'vitstr_small' or 'vitstr_base'
   # vit: 6.7M params / 26.7 MB
   # vitstr_tiny: 6.7M params / 26.7 MB
   # vitstr_small: 24.6M params / 98.5 MB
   # vitstr_base: 94.4M params / 377.4 MB
-  WEIGHTS: 'vitstr_base' 
+  BACKBONE: 'vitstr_base' 
   IMG_SIZE: [112, 448] # Default is [224, 224], but [112, 448] can be better for long words
   INPUT_CHANNELS: 3 # 1 (monochrome) or 3 (RGB)
   NUM_WORKERS: 0 # 0 - auto detect
@@ -28,7 +28,10 @@ ViTSTR-T:
     # You can choose one of the following: ["MATH", "FLASH_ATTENTION", "EFFICIENT_ATTENTION", "CUDNN_ATTENTION"].
     # If you want to add this during the inference, follow these instructions (you can use this context manager for entire forward method):
     # https://docs.pytorch.org/docs/stable/generated/torch.nn.attention.sdpa_kernel.html
-    SDPBackend: "FLASH_ATTENTION" 
+    SDPBackend: "FLASH_ATTENTION"
+    # one of ["64", "64-true", "32", "32-true", "16", "16-mixed", "bf16", "bf16-mixed"]
+    # https://github.com/Lightning-AI/pytorch-lightning/blob/master/src/lightning/pytorch/trainer/trainer.py
+    PRECISION: "bf16-mixed" 
   TEST:
     BATCH_SIZE: 1
     FOLDER: 'test' # One folder name with test data
