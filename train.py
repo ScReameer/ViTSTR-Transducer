@@ -9,7 +9,7 @@ torch.set_float32_matmul_precision('high')
 from torch.utils.data import DataLoader, ConcatDataset
 from torch.nn.attention import SDPBackend
 from pytorch_lightning import Trainer
-from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor, EarlyStopping
+from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor, EarlyStopping, OnExceptionCheckpoint
 from pytorch_lightning.loggers import CSVLogger, TensorBoardLogger
 from clearml import Task, OutputModel
 
@@ -63,6 +63,9 @@ PRECISION = CONFIG['ViTSTR-T']['TRAIN']['PRECISION']
 BATCH_SIZE = CONFIG['ViTSTR-T']['TRAIN']['BATCH_SIZE']
 MAX_EPOCHS = CONFIG['ViTSTR-T']['TRAIN']['MAX_EPOCHS']
 LR = float(CONFIG['ViTSTR-T']['TRAIN']['LR'])
+LOSS = CONFIG['ViTSTR-T']['TRAIN']['LOSS']
+WEIGHT_DECAY = float(CONFIG['ViTSTR-T']['TRAIN']['WEIGHT_DECAY'])
+DROPOUT_RATE = CONFIG['ViTSTR-T']['TRAIN']['DROPOUT_RATE']
 GAMMA = CONFIG['ViTSTR-T']['TRAIN']['GAMMA']
 TRAIN_FOLDER: str = CONFIG['ViTSTR-T']['TRAIN']['FOLDERS'][0]
 VAL_FOLDER: str = CONFIG['ViTSTR-T']['TRAIN']['FOLDERS'][1]
@@ -74,7 +77,7 @@ except:
     raise ValueError(f"Wrong SDPBackend {sdp_backend_literal}, should be one of: {[k for k, _ in SDPBackend.__dict__.items() if not k.startswith('_') and k.isupper()]}")
 
 
-def get_lmdb_paths(root_path):
+def get_lmdb_paths(root_path: Path):
     paths = []
     for path in root_path.rglob('*'):
         if path.is_dir():
@@ -109,9 +112,9 @@ def train():
     collate = Collate(pad_idx=vocab.token2idx['<PAD>'])
     match DATASET_TYPE:
         case 'json':
-            common_args = dict(dataset_path=DATASET_PATH, vocab=vocab, img_size=IMG_SIZE, input_channels=INPUT_CHANNELS)
-            dataset_train = JsonDataset(sample=TRAIN_FOLDER, **common_args)
-            dataset_valid = JsonDataset(sample=VAL_FOLDER, **common_args)
+            json_dataset_args = dict(dataset_path=DATASET_PATH, vocab=vocab, img_size=IMG_SIZE, input_channels=INPUT_CHANNELS)
+            dataset_train = JsonDataset(sample=TRAIN_FOLDER, **json_dataset_args)
+            dataset_valid = JsonDataset(sample=VAL_FOLDER, **json_dataset_args)
 
         case 'lmdb':
             train_lmdb_paths = get_lmdb_paths(DATASET_PATH / TRAIN_FOLDER)
@@ -128,13 +131,16 @@ def train():
 
     # Model
     model = ViTSTRTransducer(
-        weights=WEIGHTS,
+        weights_type=WEIGHTS,
         vocab=vocab,
         d_model=D_MODEL,
         num_heads=NUM_HEADS,
         input_size=IMG_SIZE,
         input_channels=INPUT_CHANNELS,
         lr=LR,
+        loss=LOSS,
+        weight_decay=WEIGHT_DECAY,
+        dropout_rate=DROPOUT_RATE,
         gamma=GAMMA,
         training=True,
         sdp_backend=SDP_BACKEND
@@ -157,6 +163,10 @@ def train():
         monitor='val_f1',
         enable_version_counter=False
     )
+    exception_checkpoint_callback = OnExceptionCheckpoint(
+        dirpath=os.path.join(OUTPUT_PATH, 'train', 'weights'),
+        filename='ViTSTR-FP32',
+    )
     early_stopping_callback = EarlyStopping(
         monitor='val_f1',
         mode='max',
@@ -171,7 +181,8 @@ def train():
         callbacks=[
             checkpoint_callback,
             lr_monitor_callback,
-            early_stopping_callback
+            early_stopping_callback,
+            exception_checkpoint_callback
         ], 
         logger=[csv_logger, tb_logger], 
         devices=[DEVICE_IDX],

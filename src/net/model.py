@@ -2,7 +2,7 @@ import torch
 from pytorch_lightning import LightningModule
 from torchmetrics.functional.classification import multiclass_accuracy, multiclass_f1_score
 from torch import nn, optim
-from torch.nn.attention import SDPBackend, sdpa_kernel
+from torch.nn.attention import sdpa_kernel
 
 from .losses import CrossEntropyLossSequence, FocalLoss
 from ..data_processing.vocabulary import Vocabulary
@@ -18,12 +18,13 @@ class ViTSTRTransducer(LightningModule):
         num_heads: int,
         vocab: Vocabulary,
         lr: float,
+        weight_decay: float,
         gamma: float,
-        weights: str,
-        dropout_rate: float = 0.1,
-        training: bool = True,
-        loss: str = 'focal_loss',
-        sdp_backend = SDPBackend.FLASH_ATTENTION
+        weights_type: str,
+        dropout_rate: float,
+        loss: str,
+        training: bool,
+        sdp_backend
     ) -> None:
         """
         Initializes the ViTSTRTransducer model.
@@ -36,21 +37,23 @@ class ViTSTRTransducer(LightningModule):
             vocab (Vocabulary): The vocabulary instance.
             lr (float): The learning rate.
             gamma (float): The gamma value for the ExponentialLR scheduler.
-            dropout_rate (float, optional): The dropout rate. Defaults to 0.1.
-            pretrained (bool, optional): Whether to use a pre-trained model. Defaults to True.
-            loss (str, optional): The loss function to use. Defaults to 'focal_loss', otherwise 'cross_entropy'.
+            dropout_rate (float, optional): The dropout rate.
+            pretrained (bool, optional): Whether to use a pre-trained model.
+            loss (str, optional): The loss function to use.
         """
         super().__init__()
         self.vocab = vocab
         self.vocab_size = len(self.vocab)
         self.pad_idx = self.vocab.token2idx['<PAD>']
         self.lr = lr
+        self.loss = loss
+        self.weight_decay = weight_decay
         self.gamma = gamma
         self.input_size = input_size
         self.input_channels = input_channels
         self.d_model = d_model
         self.num_heads = num_heads
-        self.weights = weights
+        self.weights_type = weights_type
         self.dropout_rate = dropout_rate
         self.training = training
         self.sdp_backend = sdp_backend
@@ -58,17 +61,20 @@ class ViTSTRTransducer(LightningModule):
         self.save_hyperparameters(dict(
             vocab_size=self.vocab_size,
             lr=self.lr,
+            weight_decay=self.weight_decay,
+            loss=self.loss,
             gamma=self.gamma,
             d_model=self.d_model,
             num_heads=self.num_heads,
             input_channels=self.input_channels,
             vocab=self.vocab,
             input_size=self.input_size,
-            weights=self.weights
+            weights_type=self.weights_type,
+            dropout_rate=self.dropout_rate
         ))
         # VisualTransformer as encoder
         self.encoder = ViTEncoder(
-            weights=self.weights,
+            weights_type=self.weights_type,
             training=self.training,
             img_size=self.input_size,
             in_chans=self.input_channels,
@@ -88,8 +94,12 @@ class ViTSTRTransducer(LightningModule):
             nn.Sigmoid()
         )
         self.linear = nn.Linear(self.d_model, self.vocab_size)
-        self.loss = FocalLoss(gamma=2, ignore_index=self.pad_idx) if loss == 'focal_loss' else CrossEntropyLossSequence(ignore_index=self.pad_idx)
-        if not self.training: print('Successfully loaded ViTSTR-T weights!\n')
+        if loss == 'focal_loss':
+            self.loss = FocalLoss(gamma=2, ignore_index=self.pad_idx)
+        elif loss == 'cross_entropy':
+            self.loss = CrossEntropyLossSequence(ignore_index=self.pad_idx)
+        else:
+            raise ValueError(f"Unsupported loss: {loss}")
        
     def training_step(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> torch.Tensor:
         self.train()
@@ -122,7 +132,7 @@ class ViTSTRTransducer(LightningModule):
         
     def configure_optimizers(self):
         # RAdamW
-        optimizer = optim.RAdam(self.parameters(), lr=self.lr, weight_decay=1e-2, decoupled_weight_decay=True)
+        optimizer = optim.RAdam(self.parameters(), lr=self.lr, weight_decay=self.weight_decay, decoupled_weight_decay=True)
         exponential_scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma=self.gamma)
         return {
             'optimizer': optimizer,
@@ -135,7 +145,6 @@ class ViTSTRTransducer(LightningModule):
         Args:
             `imgs` (`torch.Tensor`): Input images of shape `[B, C, H, W].`
             `target` (`torch.Tensor`): Target captions of shape `[B, seq]`.
-            `tgt_mask` (`torch.Tensor`): Mask for target captions of shape `[B, seq]`.
 
         Returns:
             `output` (`torch.Tensor`): Output tensor of shape `[B, seq, d_model]`
