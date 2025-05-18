@@ -6,12 +6,11 @@ from multiprocessing import cpu_count
 
 import torch
 torch.set_float32_matmul_precision('high')
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, ConcatDataset
+from torch.nn.attention import SDPBackend
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor, EarlyStopping
 from pytorch_lightning.loggers import CSVLogger, TensorBoardLogger
-from torch.utils.data import ConcatDataset
-from torch.nn.attention import SDPBackend
 from clearml import Task, OutputModel
 
 from src.net.model import ViTSTRTransducer
@@ -43,7 +42,7 @@ CML_ENABLED = bool(CONFIG['ClearML']['ENABLED'])
 PROJECT_NAME = CONFIG['ClearML']['PROJECT']
 TASK_NAME = CONFIG['ClearML']['TASK']
 # Model hyperparameters
-WEIGHTS = CONFIG['ViTSTR-T']['WEIGHTS']
+WEIGHTS = CONFIG['ViTSTR-T']['BACKBONE']
 match WEIGHTS:
     case 'vitstr_tiny':
         D_MODEL = 192 # Number of features in the text/visual embedding
@@ -60,6 +59,7 @@ match WEIGHTS:
 IMG_SIZE: tuple[int, int] = CONFIG['ViTSTR-T']['IMG_SIZE']
 INPUT_CHANNELS = CONFIG['ViTSTR-T']['INPUT_CHANNELS']
 # Training hyperparameters
+PRECISION = CONFIG['ViTSTR-T']['TRAIN']['PRECISION']
 BATCH_SIZE = CONFIG['ViTSTR-T']['TRAIN']['BATCH_SIZE']
 MAX_EPOCHS = CONFIG['ViTSTR-T']['TRAIN']['MAX_EPOCHS']
 LR = float(CONFIG['ViTSTR-T']['TRAIN']['LR'])
@@ -73,6 +73,26 @@ try:
 except:
     raise ValueError(f"Wrong SDPBackend {sdp_backend_literal}, should be one of: {[k for k, _ in SDPBackend.__dict__.items() if not k.startswith('_') and k.isupper()]}")
 
+
+def get_lmdb_paths(root_path):
+    paths = []
+    for path in root_path.rglob('*'):
+        if path.is_dir():
+            children = list(path.iterdir())
+            if not any(child.is_dir() for child in children):
+                paths.append(path)
+    return paths
+
+def create_lmdb_dataset(paths, sample_folder, vocab):
+    return ConcatDataset([
+        LmdbDataset(
+            db=Database(root=str(p), max_readers=NUM_WORKERS),
+            vocab=vocab,
+            sample=sample_folder,
+            img_size=IMG_SIZE,
+            input_channels=INPUT_CHANNELS
+        ) for p in paths
+    ])
 
 def train():
     # ClearML initialization
@@ -89,47 +109,16 @@ def train():
     collate = Collate(pad_idx=vocab.token2idx['<PAD>'])
     match DATASET_TYPE:
         case 'json':
-            dataset_train = JsonDataset(DATASET_PATH, vocab, sample=TRAIN_FOLDER, img_size=IMG_SIZE, input_channels=INPUT_CHANNELS)
-            dataset_valid = JsonDataset(DATASET_PATH, vocab, sample=VAL_FOLDER, img_size=IMG_SIZE, input_channels=INPUT_CHANNELS)
-            
-        case 'lmdb':
-            train_lmdb_paths = []
-            val_lmdb_paths = []
-            for path in (DATASET_PATH / TRAIN_FOLDER).rglob('*'):
-                if path.is_dir():
-                    children = list(path.iterdir())
-                    has_subdirs = any(child.is_dir() for child in children)
-                    if not has_subdirs:
-                        train_lmdb_paths.append(path)
-            for path in (DATASET_PATH / VAL_FOLDER).rglob('*'):
-                if path.is_dir():
-                    children = list(path.iterdir())
-                    has_subdirs = any(child.is_dir() for child in children)
-                    if not has_subdirs:
-                        val_lmdb_paths.append(path)
+            common_args = dict(dataset_path=DATASET_PATH, vocab=vocab, img_size=IMG_SIZE, input_channels=INPUT_CHANNELS)
+            dataset_train = JsonDataset(sample=TRAIN_FOLDER, **common_args)
+            dataset_valid = JsonDataset(sample=VAL_FOLDER, **common_args)
 
-            dataset_train = ConcatDataset(
-                [
-                    LmdbDataset(
-                        db=Database(root=str(lmdb_path), max_readers=NUM_WORKERS),
-                        vocab=vocab,
-                        sample=TRAIN_FOLDER,
-                        img_size=IMG_SIZE,
-                        input_channels=INPUT_CHANNELS
-                    ) for lmdb_path in train_lmdb_paths
-                ]
-            )
-            dataset_valid = ConcatDataset(
-                [
-                    LmdbDataset(
-                        db=Database(root=str(lmdb_path), max_readers=NUM_WORKERS),
-                        vocab=vocab,
-                        sample=VAL_FOLDER,
-                        img_size=IMG_SIZE,
-                        input_channels=INPUT_CHANNELS
-                    ) for lmdb_path in val_lmdb_paths
-                ]
-            )
+        case 'lmdb':
+            train_lmdb_paths = get_lmdb_paths(DATASET_PATH / TRAIN_FOLDER)
+            val_lmdb_paths = get_lmdb_paths(DATASET_PATH / VAL_FOLDER)
+            dataset_train = create_lmdb_dataset(train_lmdb_paths, TRAIN_FOLDER, vocab)
+            dataset_valid = create_lmdb_dataset(val_lmdb_paths, VAL_FOLDER, vocab)
+
     dataloader_train = DataLoader(dataset_train, batch_size=BATCH_SIZE, collate_fn=collate, shuffle=True, num_workers=NUM_WORKERS)
     dataloader_valid = DataLoader(dataset_valid, batch_size=BATCH_SIZE, collate_fn=collate, shuffle=False, num_workers=NUM_WORKERS)
 
@@ -187,7 +176,7 @@ def train():
         logger=[csv_logger, tb_logger], 
         devices=[DEVICE_IDX],
         log_every_n_steps=len(dataloader_train), # Every epoch
-        precision="bf16-mixed"
+        precision=PRECISION
     )
     
     # Training
