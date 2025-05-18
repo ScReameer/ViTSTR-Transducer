@@ -1,5 +1,6 @@
 from .vitstr import vitstr_tiny_patch16_224, vitstr_small_patch16_224, vitstr_base_patch16_224
 from collections import OrderedDict
+import os
 
 import torch
 from torch import nn
@@ -8,22 +9,23 @@ from timm.models.vision_transformer import vit_tiny_patch16_224
 
 
 class ViTEncoder(nn.Module):
-    def __init__(self, weights: str, training: bool, img_size: tuple[int, int], **kwargs) -> None:
+    def __init__(self, weights_type: str, training: bool, img_size: tuple[int, int], **kwargs) -> None:
         """
         Initializes a ViTSTR model with the specified weights and training mode.
 
         Args:
-            weights (str): The type of weights to use, either 'vit' or 'vitstr'.
+            weights_type (str): The type of weights to use, either 'vit' or 'vitstr'.
             training (bool): Whether the model is in training mode.
         """
         super().__init__()
-        assert weights in ['vit', 'vitstr_tiny', 'vitstr_small', 'vitstr_base'], 'ViT weights should be either "vit" or "vitstr_tiny" or "vitstr_small" or "vitstr_base"'
-        if weights == 'vit':
-            model = weights
+        assert weights_type in ['vit', 'vitstr_tiny', 'vitstr_small', 'vitstr_base'], 'ViT weights should be either "vit" or "vitstr_tiny" or "vitstr_small" or "vitstr_base"'
+        if weights_type == 'vit':
+            model = weights_type
         else:
-            model, size = weights.split('_')
-        self.weights = weights
+            model, size = weights_type.split('_')
+        self.weights = weights_type
         self.img_size = img_size
+        
         match model:
             
             case 'vitstr':
@@ -37,14 +39,19 @@ class ViTEncoder(nn.Module):
                 if size == 'tiny':
                     self.vit: VisionTransformer = vitstr_tiny_patch16_224(pretrained=False, num_classes=vitstr_pretrained_config['num_classes'])
                     backbone = 'vitstr_backbone/vitstr_tiny_patch16_224_aug.pth'
+                    link = r'https://github.com/roatienza/deep-text-recognition-benchmark/releases/download/v0.1.0/vitstr_tiny_patch16_224_aug.pth'
                 elif size == 'small':
                     self.vit: VisionTransformer = vitstr_small_patch16_224(pretrained=False, num_classes=vitstr_pretrained_config['num_classes'])
                     backbone = 'vitstr_backbone/vitstr_small_patch16_224_aug.pth'
+                    link = r'https://github.com/roatienza/deep-text-recognition-benchmark/releases/download/v0.1.0/vitstr_small_patch16_224_aug.pth'
                 elif size == 'base':
                     self.vit: VisionTransformer = vitstr_base_patch16_224(pretrained=False, num_classes=vitstr_pretrained_config['num_classes'])
                     backbone = 'vitstr_backbone/vitstr_base_patch16_224_aug.pth'
+                    link = r'https://github.com/roatienza/deep-text-recognition-benchmark/releases/download/v0.1.0/vitstr_base_patch16_224_aug.pth'
                 
-                # self.vit: VisionTransformer = vitstr_small_patch16_224(pretrained=False, num_classes=vitstr_pretrained_config['num_classes'])
+                if not os.path.exists(backbone):
+                    os.system(f'wget {link} -P {backbone.split(r"/")[0]}')
+
                 if training:
                     loaded_backbone: OrderedDict = torch.load(backbone, weights_only=True)
                     fixed_weights = OrderedDict()
@@ -67,11 +74,11 @@ class ViTEncoder(nn.Module):
                     total_patches = self.img_size[0] // vitstr_pretrained_config['stride'][0] * self.img_size[1] // vitstr_pretrained_config['stride'][1]
                     self.vit.pos_embed.data = self.vit.pos_embed.data[:, :total_patches+1, :]
                     self.vit.patch_embed.img_size = self.img_size
-                if training: print('Successfully loaded ViTSTR weights!\n')
+                if training: print('Successfully loaded ViTSTR backbone!\n')
                 
             case 'vit':
                 self.vit: VisionTransformer = vit_tiny_patch16_224(pretrained=training, **kwargs)
-                if training: print('Successfully loaded ViT weights!\n')
+                if training: print('Successfully loaded ViT backbone!\n')
 
     def forward(self, x, seqlen: int) -> torch.Tensor:
         x = self.vit.forward_features(x)
