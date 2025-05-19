@@ -100,7 +100,7 @@ class ImageCaptionerTorchscript:
             # Concatenate previous input with predicted best word
             y_input = torch.cat((y_input, next_item), dim=1)
             # Stop if model predicts end of sentence
-            if next_item.view(-1).item() == self.vocab.token2idx['<END>']:
+            if next_item.view(-1).item() == self.vocab.end_token_idx:
                 confidence = pred.softmax(-1).max(-1).values.squeeze().cpu().numpy()[:-1]
                 break
             indices.append(next_item.item())

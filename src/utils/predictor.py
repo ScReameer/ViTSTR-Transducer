@@ -6,6 +6,7 @@ import plotly.io as pio
 import plotly.express as px
 from torch.utils.data import DataLoader
 from PIL import Image
+from pathlib import Path
 
 from ..net.model import ViTSTRTransducer
 from ..data_processing.dataset import Transforms, ImageStatistics
@@ -15,7 +16,7 @@ pio.renderers.default = 'png'
 
 
 class Predictor:
-    def __init__(self, img_size: list[int] | tuple[int, int], device: str, input_channels: int, output_path='predictions', ) -> None:
+    def __init__(self, img_size: list[int] | tuple[int, int], device: str, input_channels: int, output_path: str | Path ) -> None:
         """
         Initializes the Predictor class.
 
@@ -126,6 +127,6 @@ class Predictor:
             if not os.path.exists(self.output_path):
                 os.makedirs(self.output_path)
             backslash = '\\'
-            fig.write_image(f"{self.output_path}/{prediction.replace('/', '').replace(backslash, '')}.png")
+            fig.write_image(f"{str(self.output_path)}/{prediction.replace('/', '').replace(backslash, '')}.png")
         return prediction
         

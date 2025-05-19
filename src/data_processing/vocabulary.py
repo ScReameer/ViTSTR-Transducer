@@ -24,11 +24,6 @@ class Vocabulary:
         self.idx2token.update({idx: char for idx, char in enumerate(self.labels, start_idx)})
         self.token2idx.update({char: idx for idx, char in enumerate(self.labels, start_idx)})
     
-
-    def contains_cyrillic(self, text: str) -> bool:
-        return bool(re.search(r'[а-яА-ЯёЁ]', text))
-
-    
     def encode(self, text: str):
         text = text.lower()
         for char in text:
@@ -40,3 +35,15 @@ class Vocabulary:
     
     def decode(self, tensor: torch.Tensor):
         return ''.join([self.idx2token[idx] for idx in tensor.tolist()])
+    
+    @property
+    def pad_token_idx(self):
+        return self.token2idx['<PAD>']
+    
+    @property
+    def start_token_idx(self):
+        return self.token2idx['<START>']
+    
+    @property
+    def end_token_idx(self):
+        return self.token2idx['<END>']

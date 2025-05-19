@@ -2,13 +2,14 @@ import os
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.io as pio
+from pathlib import Path
 
 # pio.renderers.default = 'png'
 pio.templates.default = 'plotly_white'
 
 
 class History:
-    def __init__(self, history_path: str) -> None:
+    def __init__(self, history_path: str | Path) -> None:
         """
         Initializes the History class by loading the training metrics from the specified history path.
 

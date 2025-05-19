@@ -42,6 +42,7 @@ class Transforms:
             A.RandomBrightnessContrast(),
             A.Rotate(limit=10, border_mode=cv.BORDER_REPLICATE),
             A.Perspective(),
+            A.ChannelShuffle(),
             A.MotionBlur(blur_limit=15),
             A.GaussNoise(),
             self.eval

@@ -2,7 +2,7 @@ import torch
 from pytorch_lightning import LightningModule
 from torchmetrics.functional.classification import multiclass_accuracy, multiclass_f1_score
 from torch import nn, optim
-from torch.nn.attention import sdpa_kernel
+from torch.nn.attention import sdpa_kernel, SDPBackend
 
 from .losses import CrossEntropyLossSequence, FocalLoss
 from ..data_processing.vocabulary import Vocabulary
@@ -20,11 +20,11 @@ class ViTSTRTransducer(LightningModule):
         lr: float,
         weight_decay: float,
         gamma: float,
-        weights_type: str,
+        backbone_type: str,
         dropout_rate: float,
         loss: str,
         training: bool,
-        sdp_backend
+        sdp_backend = SDPBackend.FLASH_ATTENTION
     ) -> None:
         """
         Initializes the ViTSTRTransducer model.
@@ -44,16 +44,15 @@ class ViTSTRTransducer(LightningModule):
         super().__init__()
         self.vocab = vocab
         self.vocab_size = len(self.vocab)
-        self.pad_idx = self.vocab.token2idx['<PAD>']
+        self.pad_idx = self.vocab.pad_token_idx
         self.lr = lr
-        self.loss = loss
         self.weight_decay = weight_decay
         self.gamma = gamma
         self.input_size = input_size
         self.input_channels = input_channels
         self.d_model = d_model
         self.num_heads = num_heads
-        self.weights_type = weights_type
+        self.backbone_type = backbone_type
         self.dropout_rate = dropout_rate
         self.training = training
         self.sdp_backend = sdp_backend
@@ -62,19 +61,19 @@ class ViTSTRTransducer(LightningModule):
             vocab_size=self.vocab_size,
             lr=self.lr,
             weight_decay=self.weight_decay,
-            loss=self.loss,
+            loss=loss,
             gamma=self.gamma,
             d_model=self.d_model,
             num_heads=self.num_heads,
             input_channels=self.input_channels,
             vocab=self.vocab,
             input_size=self.input_size,
-            weights_type=self.weights_type,
-            dropout_rate=self.dropout_rate
+            backbone_type=self.backbone_type,
+            dropout_rate=self.dropout_rate,
         ))
         # VisualTransformer as encoder
         self.encoder = ViTEncoder(
-            weights_type=self.weights_type,
+            backbone_type=self.backbone_type,
             training=self.training,
             img_size=self.input_size,
             in_chans=self.input_channels,
@@ -181,7 +180,7 @@ class ViTSTRTransducer(LightningModule):
         device = image.device
         self.eval().to(device)
         image = image.unsqueeze(0)
-        y_input = torch.tensor([[self.vocab.token2idx['<START>']]], dtype=torch.int, device=device)
+        y_input = torch.tensor([[self.vocab.start_token_idx]], dtype=torch.int, device=device)
 
         for _ in range(max_length):
             # Get target mask
@@ -192,7 +191,7 @@ class ViTSTRTransducer(LightningModule):
             # Concatenate previous input with predicted best word
             y_input = torch.cat((y_input, next_item), dim=1)
             # Stop if model predicts end of sentence
-            if next_item.view(-1).item() == self.vocab.token2idx['<END>']:
+            if next_item.view(-1).item() == self.vocab.end_token_idx:
                 break
                 
         result = y_input.view(-1)[1:-1]
