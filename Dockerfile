@@ -15,4 +15,4 @@ COPY . .
 RUN mv ./configs/clearml.conf /root/clearml.conf
 RUN clearml-init
 
-CMD ["python", "train.py", "--config=./configs/train_test.yaml", "--output-dir=outputs", "--device=0"]
+CMD ["python", "main.py", "--config=./configs/train_test.yaml", "--output-dir=outputs", "--device=0"]
