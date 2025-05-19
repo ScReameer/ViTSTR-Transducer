@@ -18,11 +18,11 @@ ViTSTR-T:
   INPUT_CHANNELS: 3 # 1 (monochrome) or 3 (RGB)
   NUM_WORKERS: 0 # 0 - auto detect
   TRAIN:
-    BATCH_SIZE: 128
+    BATCH_SIZE: 64
     FOLDERS: ['train', 'val'] # Two folder names with train and eval data
     MAX_EPOCHS: 1
     LOSS: 'focal_loss' # "focal_loss" or "cross_entropy"
-    LR: 5e-5 # Initial learning rate
+    LR: 7.5e-5 # Initial learning rate
     WEIGHT_DECAY: 1e-3 # decoupled weight decay
     DROPOUT_RATE: 0.1
     GAMMA: 0.98 # Exponential multiplier for learning rate per epoch
