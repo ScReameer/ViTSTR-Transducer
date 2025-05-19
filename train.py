@@ -77,6 +77,14 @@ except:
     raise ValueError(f"Wrong SDPBackend {sdp_backend_literal}, should be one of: {[k for k, _ in SDPBackend.__dict__.items() if not k.startswith('_') and k.isupper()]}")
 
 
+class ExceptionCheckpoint(OnExceptionCheckpoint):
+    def __init__(self, dirpath, filename):
+        super().__init__(dirpath, filename)
+    
+    def on_exception(self, trainer: Trainer, *_, **__) -> None:
+        trainer.save_checkpoint(self.ckpt_path, weights_only=True) 
+
+
 def get_lmdb_paths(root_path: Path):
     paths = []
     for path in root_path.rglob('*'):
@@ -163,7 +171,7 @@ def train():
         monitor='val_f1',
         enable_version_counter=False
     )
-    exception_checkpoint_callback = OnExceptionCheckpoint(
+    exception_checkpoint_callback = ExceptionCheckpoint(
         dirpath=os.path.join(OUTPUT_PATH, 'train', 'weights'),
         filename='ViTSTR-FP32',
     )
