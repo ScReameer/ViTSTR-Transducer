@@ -5,7 +5,7 @@ ClearML:
   TASK: 'text-recognition' # ClearML task name
 DATASET:
   # PATH: '/home/vadim/DL/github/OCR-STR-dataset/dataset' # Relative or absolute path to dataset with 'train', 'val' and 'test' folders
-  TYPE: 'lmdb' # "lmdb" or "json"
+  TYPE: 'json' # "lmdb" or "json"
   PATH: '/dataset' # NOTE: if you use docker container you should specify your local dataset path in '.env' file
 ViTSTR-T:
   # Pretrained weights for training, should be 'vit' or 'vitstr_tiny' or 'vitstr_small' or 'vitstr_base'
@@ -13,20 +13,21 @@ ViTSTR-T:
   # vitstr_tiny: 6.7M params / 26.7 MB
   # vitstr_small: 24.6M params / 98.5 MB
   # vitstr_base: 94.4M params / 377.4 MB
-  BACKBONE: 'vitstr_base' 
+  BACKBONE_TYPE: 'vitstr_base' 
   IMG_SIZE: [112, 448] # Default is [224, 224], but [112, 448] can be better for long words
   INPUT_CHANNELS: 3 # 1 (monochrome) or 3 (RGB)
   NUM_WORKERS: 0 # 0 - auto detect
   TRAIN:
     BATCH_SIZE: 64
     FOLDERS: ['train', 'val'] # Two folder names with train and eval data
-    MAX_EPOCHS: 1
+    MAX_EPOCHS: 2
     LOSS: 'focal_loss' # "focal_loss" or "cross_entropy"
     LR: 7.5e-5 # Initial learning rate
     WEIGHT_DECAY: 1e-3 # decoupled weight decay
     DROPOUT_RATE: 0.1
     GAMMA: 0.98 # Exponential multiplier for learning rate per epoch
-    PATIENCE: 50
+    PATIENCE: 50 # EarlyStopping 'patience' arg
+    MIN_DELTA: 1e-3 # EarlyStopping 'min_delta' arg
     # Attention backend for training (don't affect inference after loading *.ckpt or *.torchscript model), default is "FLASH_ATTENTION".
     # You can choose one of the following: ["MATH", "FLASH_ATTENTION", "EFFICIENT_ATTENTION", "CUDNN_ATTENTION"].
     # If you want to add this during the inference, follow these instructions (you can use this context manager for entire forward method):
