@@ -9,7 +9,7 @@ from timm.models.vision_transformer import vit_tiny_patch16_224
 
 
 class ViTEncoder(nn.Module):
-    def __init__(self, weights_type: str, training: bool, img_size: tuple[int, int], **kwargs) -> None:
+    def __init__(self, backbone_type: str, training: bool, img_size: tuple[int, int], **kwargs) -> None:
         """
         Initializes a ViTSTR model with the specified weights and training mode.
 
@@ -18,12 +18,12 @@ class ViTEncoder(nn.Module):
             training (bool): Whether the model is in training mode.
         """
         super().__init__()
-        assert weights_type in ['vit', 'vitstr_tiny', 'vitstr_small', 'vitstr_base'], 'ViT weights should be either "vit" or "vitstr_tiny" or "vitstr_small" or "vitstr_base"'
-        if weights_type == 'vit':
-            model = weights_type
+        assert backbone_type in ['vit', 'vitstr_tiny', 'vitstr_small', 'vitstr_base'], 'ViT backbone_type should be either "vit" or "vitstr_tiny" or "vitstr_small" or "vitstr_base"'
+        if backbone_type == 'vit':
+            model = backbone_type
         else:
-            model, size = weights_type.split('_')
-        self.weights = weights_type
+            model, size = backbone_type.split('_')
+        self.weights = backbone_type
         self.img_size = img_size
         
         match model:
