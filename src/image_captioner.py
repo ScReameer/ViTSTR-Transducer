@@ -1,14 +1,11 @@
 from .net.model import ViTSTRTransducer
 from .data_processing.vocabulary import Vocabulary
 from .utils.predictor import Predictor
-from .data_processing.dataset import Transforms
+from .data_processing.dataset import Transforms, ImageStatistics
 import torch
 import numpy as np
+from albumentations import Compose
 from PIL import Image
-import time
-import logging
-
-logger = logging.getLogger(__name__)
 
 
 class ImageCaptioner:
@@ -38,7 +35,7 @@ class ImageCaptioner:
         return self.predictor.caption_single_image(path, self.model, save_img=save_img)
     
 class ImageCaptionerTorchscript:
-    def __init__(self, checkpoint_path: str, labels: list, device: int | str) -> None:
+    def __init__(self, checkpoint_path: str, labels: list[str] | str, device: int | str, dtype: torch.dtype) -> None:
         """
         Initializes an instance of the ImageCaptionerTorchscript class.
 
@@ -51,7 +48,20 @@ class ImageCaptionerTorchscript:
         self.device = device
         self.model = torch.jit.load(checkpoint_path, map_location=self.device).eval()
         self.vocab: Vocabulary = Vocabulary(labels=labels)
-        self.transforms = Transforms(self.model.input_size).eval
+        self.dtype = dtype
+        self.img_size = self.model.input_size
+        self.input_channels = self.model.input_channels
+        if self.input_channels == 1:
+            self.mean = ImageStatistics.MEAN_MONOCHROME
+            self.std = ImageStatistics.STD_MONOCHROME
+            self.convert_literal = 'L'
+        elif self.input_channels == 3:
+            self.mean = ImageStatistics.MEAN_RGB
+            self.std = ImageStatistics.STD_RGB
+            self.convert_literal = 'RGB'
+        else:
+            raise ValueError(f"input_channels cannot be {self.input_channels}, acceptable values is 1 or 3")
+        self.transforms: Compose = Transforms(img_size=self.img_size, mean=self.mean, std=self.std).eval
     
     def preprocess_image(self, path: str) -> torch.Tensor:
         """
@@ -64,14 +74,14 @@ class ImageCaptionerTorchscript:
             torch.Tensor: The preprocessed image tensor of shape [1, 3, H, W].
         """
         try:
-            orig_img = np.array(Image.open(path).convert('RGB')) # [H, W, 3]
+            orig_img = np.array(Image.open(path).convert(self.convert_literal)) # [H, W, 3]
         except:
-            raise ValueError(f'Wrong image path: {path}')
-        processed_img = self.transforms(image=orig_img)['image'].half().unsqueeze(0).to(self.device) # [1, 3, H, W]
+            raise ValueError(f'Cannot open image: {path}')
+        processed_img = self.transforms(image=orig_img)['image'].to(self.dtype).unsqueeze(0).to(self.device) # [1, 3, H, W]
         return processed_img
         
     
-    @torch.no_grad()
+    @torch.inference_mode()
     def predict(self, image: torch.Tensor, max_length=30) -> str:
         """
         Predicts a price for a given image.
@@ -83,8 +93,7 @@ class ImageCaptionerTorchscript:
         Returns:
             str: The predicted price for the image.
         """
-        y_input = torch.tensor([[self.vocab.token2idx['<START>']]], dtype=torch.int, device=self.device)
-        time_start = time.time()
+        y_input = torch.tensor([[self.vocab.start_token_idx]], dtype=torch.int, device=self.device)
         # Example
         # 1st iteration: [<START>]
         # 2nd iteration: [<START>, 7]
@@ -101,7 +110,7 @@ class ImageCaptionerTorchscript:
             y_input = torch.cat((y_input, next_item), dim=1)
             # Stop if model predicts end of sentence
             if next_item.view(-1).item() == self.vocab.end_token_idx:
-                confidence = pred.softmax(-1).max(-1).values.squeeze().cpu().numpy()[:-1]
+                confidence = pred.softmax(-1).max(-1).values.squeeze().half().cpu().numpy()[:-1]
                 break
             indices.append(next_item.item())
         
@@ -109,8 +118,6 @@ class ImageCaptionerTorchscript:
         # print(confidence)
         # print('\nIndices:\n')
         # print(indices, '\n')
-        time_end = time.time()
-        logger.info(f'Inference time: {time_end - time_start:.2f} seconds')
         # [1, seq] -> [seq] without <START> and <END>
         result = y_input.view(-1)[1:-1]
         return self.vocab.decode(result)
