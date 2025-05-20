@@ -4,9 +4,10 @@ ClearML:
   PROJECT: 'ViTSTR-T' # ClearML project name
   TASK: 'text-recognition' # ClearML task name
 DATASET:
-  # PATH: '/home/vadim/DL/github/OCR-STR-dataset/dataset' # Relative or absolute path to dataset with 'train', 'val' and 'test' folders
-  TYPE: 'json' # "lmdb" or "json"
-  PATH: '/dataset' # NOTE: if you use docker container you should specify your local dataset path in '.env' file
+  TYPE: 'lmdb' # "lmdb" or "json"
+  # Path to dataset with 'train', 'val' and 'test' folders
+  # NOTE: if you use docker container you should specify your local dataset path in '.env' file
+  PATH: '/dataset' 
 ViTSTR-T:
   # Pretrained weights for training, should be 'vit' or 'vitstr_tiny' or 'vitstr_small' or 'vitstr_base'
   # vit: 6.7M params / 26.7 MB
@@ -20,9 +21,9 @@ ViTSTR-T:
   TRAIN:
     BATCH_SIZE: 64
     FOLDERS: ['train', 'val'] # Two folder names with train and eval data
-    MAX_EPOCHS: 2
-    LOSS: 'focal_loss' # "focal_loss" or "cross_entropy"
-    LR: 7.5e-5 # Initial learning rate
+    MAX_EPOCHS: 1
+    LOSS: 'focal_loss' # "focal_loss" or "cross_entropy". In practice, Focal Loss converges faster for this task
+    LR: 5e-5 # Initial learning rate
     WEIGHT_DECAY: 1e-3 # decoupled weight decay
     DROPOUT_RATE: 0.1
     GAMMA: 0.98 # Exponential multiplier for learning rate per epoch
