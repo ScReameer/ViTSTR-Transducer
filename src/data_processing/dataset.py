@@ -1,4 +1,5 @@
 from .vocabulary import Vocabulary
+import glob
 import torch
 import json
 import os
@@ -14,6 +15,7 @@ import io
 from pathlib import Path
 from torch.utils.data import get_worker_info
 from dataclasses import dataclass
+
 
 @dataclass
 class ImageStatistics:
@@ -87,8 +89,18 @@ class JsonDataset(Dataset):
     def __getitem__(self, index):
         with open(os.path.join(self.annotations_path, self.annotations_list[index]), 'r') as f:
             annotation_data = json.load(f)
-        img_path = annotation_data['name'] + '.png'
+        base_name = annotation_data['name']
         label = annotation_data['description']
+
+        pattern = os.path.join(self.images_path, base_name + '.*')
+        matches = glob.glob(pattern)
+
+        if not matches:
+            print(f"No image file found for base name '{base_name}' in '{self.images_path}'. Skipping this image...")
+            return self.__getitem__(index=index+1)
+        
+        img_path = matches[0]
+
         img = np.array(Image.open(os.path.join(self.images_path, img_path)).convert(self.convert_literal))
         img = self.transforms(image=img)['image'] # [C, H, W]
         target = self.vocab.encode(label) # [Sequence]
