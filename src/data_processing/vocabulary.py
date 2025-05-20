@@ -1,8 +1,8 @@
 import torch
-import re
+
 
 class Vocabulary:
-    def __init__(self, labels: list):
+    def __init__(self, labels: list[str] | str):
         """
         Initializes a Vocabulary object with the given list of labels.
         
@@ -30,7 +30,7 @@ class Vocabulary:
             if char not in self.token2idx:
                 text = text.replace(char, '')
         # <START> ... <END>
-        output = [self.token2idx['<START>']] + [self.token2idx[digit]for digit in text] + [self.token2idx['<END>']]
+        output = [self.start_token_idx] + [self.token2idx[digit]for digit in text] + [self.end_token_idx]
         return torch.tensor(output)
     
     def decode(self, tensor: torch.Tensor):
