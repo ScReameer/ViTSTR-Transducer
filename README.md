@@ -1,37 +1,90 @@
 # <center>ViTSTR-Transducer implementation for text recognition</center>
 
 <details>
-  <summary><b>Example</b> (clickable spoiler)</summary>
 
-  ![](./imgs/examples/example.png)
+  <summary><b>Test set examples</b> (clickable spoiler)</summary>
+  
+
+  ![](./imgs/examples/billiards.png)
+  ![](./imgs/examples/center.png)
+  ![](./imgs/examples/allen.png)
+  ![](./imgs/examples/college.png)
+  ![](./imgs/examples/colorado.png)
+  ![](./imgs/examples/japanese.png)
+  ![](./imgs/examples/icebox.png)
+  ![](./imgs/examples/michoacana.png)
+  ![](./imgs/examples/restaurant.png)
   
 </details>
 
+<b>More [here](./imgs/examples)</b>
 
 ## Architecture
 ![](./imgs/architecture/arch.png)
 
-## Overview
-Datasets used for training can be found [<b>here</b>](https://github.com/clovaai/deep-text-recognition-benchmark) (`data_lmdb_release.zip`)
+## Inference using pretrained weights
+## Train on your own data
+### Dataset
+Datasets can be in two different formats:
+* <b>LMDB</b>
 
-Final model size is approximately 43 MB
+  The structure should be approximately as follows:
+  ```bash
+  ├── test
+  │   ├── CUTE80
+  │   │   ├── data.mdb
+  │   │   └── lock.mdb
+  │   ├── IC03_860
+  │   │   ├── data.mdb
+  │   │   └── lock.mdb
+  │   ├── IC03_867
+  │   │   ├── data.mdb
+  │   │   └── lock.mdb
+  │  ...
+  ├── train
+  │   ├── MJ
+  │   │   ├── data.mdb
+  │   │   └── lock.mdb
+  │   └── ST
+  │       ├── data.mdb
+  │       └── lock.mdb
+  └── val
+      ├── MJ_valid
+      │   ├── data.mdb
+      │   └── lock.mdb
+      └── extra_val
+          ├── data.mdb
+          └── lock.mdb
+  ```
+  More about lmdb internal structure can be found in [`LmdbDataset.__getitem__`](./src/data_processing/dataset.py)
 
-It took 3 epochs of training in order to achieve good results with following hyperparameters:
+* <b>JSON</b>
 
-```yaml
-d_model: 256
-input_channels: 1
-lr_max: 0.0001
-lr_min: 1.0e-05
-num_heads: 4
-t_max: 2
-vocab_size: 72
-```
+  ```bash
+  ├── test
+  │   ├── ann
+  │   │   └── 1.json
+  │   └── img
+  │   │   └── 1.png
+  ├── train
+  │   ├── ann
+  │   │   └── 2.json
+  │   └── img
+  │   │   └── 2.jpg
+  └── val
+      ├── ann
+          └── 3.json
+      └── img
+          └── 3.jpeg
+  ```
+    
+  Json file must contain 2 fields: `description` (**real target**) and `name` (**image filename without extension**)
+  ```json
+  {"description": "kioto", "name": "00db2bdb-a968-45b1-9e93-585dfe04042e"}
+  ```
 
-Training and inference code can be found in [<b>training.ipynb</b>](training.ipynb) and [<b>inference.ipynb</b>](inference.ipynb) respectively
+Datasets used for training, validation and testing can be found [<b>here</b>](https://github.com/clovaai/deep-text-recognition-benchmark) ([direct link to DropBox](https://www.dropbox.com/scl/fo/zf04eicju8vbo4s6wobpq/ALAXXq2iwR6wKJyaybRmHiI?rlkey=2rywtkyuz67b20hk58zkfhh2r&e=1&dl=0))
 
-![](./imgs/history/metrics.png)  
-![](./imgs/history/lr.png)
 
 ## References
 [ViTSTR-Transducer: Cross-Attention-Free Vision Transformer Transducer for Scene Text Recognition](https://www.mdpi.com/2313-433X/9/12/276)
