@@ -24,6 +24,7 @@
 
 ## Inference using pretrained weights
 ## Train on your own data
+`source .env && docker compose build && docker compose run vitstr`
 ### Dataset
 Datasets can be in two different formats:
 * <b>LMDB</b>
