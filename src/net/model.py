@@ -168,7 +168,15 @@ class ViTSTRTransducer(LightningModule):
     
     @torch.inference_mode()
     def predict(self, x: torch.Tensor, max_length: int = 30) -> tuple[list[str], list[torch.Tensor]]:
-        x = x.to(self.device)
+        """
+        Predict the text and confidence scores for a batch of input tensors.
+        Args:
+            x (torch.Tensor): The input tensor of shape (batch_size, sequence_length).
+            max_length (int): The maximum length of the predicted text.
+        Returns:
+            tuple[list[str], list[torch.Tensor]]: A tuple containing the predicted text and confidence scores.
+        """
+        x = x.to(self.device).to(self.dtype)
         y_input = torch.tensor([[self.vocab.start_token_idx] for _ in range(len(x))], dtype=torch.int, device=self.device)
         for _ in range(max_length):
             pred = self.forward(x, y_input)
@@ -193,7 +201,7 @@ class ViTSTRTransducer(LightningModule):
                     if result[j] == token:
                         del_indexes.append(j)
             result = ''.join(np.delete(result, del_indexes))
-            conf = np.delete(conf.cpu(), del_indexes)
+            conf = np.delete(conf.half().cpu(), del_indexes)
             output_prediction.append(result)
             output_confidence.append(conf)
         return output_prediction, output_confidence
