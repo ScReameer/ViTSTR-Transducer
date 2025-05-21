@@ -1,11 +1,12 @@
 import torch
+import numpy as np
 from pytorch_lightning import LightningModule
 from torchmetrics.functional.classification import multiclass_accuracy, multiclass_f1_score
 from torch import nn, optim
 from torch.nn.attention import sdpa_kernel, SDPBackend
 
 from .losses import CrossEntropyLossSequence, FocalLoss
-from ..data_processing.vocabulary import Vocabulary
+from ..data import Vocabulary
 from .encoder import ViTEncoder
 
 
@@ -165,37 +166,37 @@ class ViTSTRTransducer(LightningModule):
         output = self.linear((1 - alpha)*visual_features + alpha*linguistic_features)
         return output # [B, seqlen, vocab_size]
     
-    @torch.no_grad()
-    def predict(self, image: torch.Tensor, max_length=30):
-        """
-        Predicts a price for a given image.
-
-        Args:
-            image (torch.Tensor): A preprocessed (resized and normalized) image of shape [C, H, W].
-            max_length (int, optional): The maximum output sentence length. Defaults to 30. (2 extra tokens for <START> and <END>)
-
-        Returns:
-            str: The predicted price for the image.
-        """
-        device = image.device
-        self.eval().to(device)
-        image = image.unsqueeze(0)
-        y_input = torch.tensor([[self.vocab.start_token_idx]], dtype=torch.int, device=device)
-
+    @torch.inference_mode()
+    def predict(self, x: torch.Tensor, max_length: int = 30) -> tuple[list[str], list[torch.Tensor]]:
+        x = x.to(self.device)
+        y_input = torch.tensor([[self.vocab.start_token_idx] for _ in range(len(x))], dtype=torch.int, device=self.device)
         for _ in range(max_length):
-            # Get target mask
-            # tgt_mask = self._get_tgt_mask(y_input.size(1)).to(device)
-            pred: torch.Tensor = self.forward(image, y_input)
-            next_item = pred.argmax(-1)[0, -1].item()
-            next_item = torch.tensor([[next_item]], device=device)
-            # Concatenate previous input with predicted best word
-            y_input = torch.cat((y_input, next_item), dim=1)
-            # Stop if model predicts end of sentence
-            if next_item.view(-1).item() == self.vocab.end_token_idx:
+            pred = self.forward(x, y_input)
+            next_item = pred.argmax(-1)[..., -1:]
+            if torch.all(next_item.reshape(-1) == self.vocab.end_token_idx):
                 break
-                
-        result = y_input.view(-1)[1:-1]
-        return result
+            y_input = torch.cat((y_input, next_item), dim=1)
+        confidence = torch.softmax(pred, dim=-1).max(-1).values
+        output_prediction = []
+        output_confidence = []
+        for i in range(y_input.shape[0]):
+            del_indexes = []
+            # ['<START>', 'something', '...', '<END>', '<END>', '<END>']
+            result = self.vocab.decode(y_input[i]) # [N, ]
+            conf = confidence[i] # [N, ]
+            end_idx = next((i for i, s in enumerate(result) if self.vocab.idx2token[self.vocab.end_token_idx] in s), None)
+            if end_idx:
+                result = result[:end_idx]
+                conf = conf[:end_idx]
+            for token in self.vocab.service_tokens.values():
+                for j in range(len(result)):
+                    if result[j] == token:
+                        del_indexes.append(j)
+            result = ''.join(np.delete(result, del_indexes))
+            conf = np.delete(conf.cpu(), del_indexes)
+            output_prediction.append(result)
+            output_confidence.append(conf)
+        return output_prediction, output_confidence
     
     def _compute_loss_and_metrics(self, imgs: torch.Tensor, target: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         target_input = target[:, :-1] # [B, seq] without <END>

@@ -17,10 +17,8 @@ from pytorch_lightning.loggers import CSVLogger, TensorBoardLogger
 from clearml import Task, OutputModel
 
 from src.net.model import ViTSTRTransducer
-from src.data_processing.dataset import Collate, LmdbDataset, JsonDataset, Database
-from src.data_processing.vocabulary import Vocabulary
-from src.utils.predictor import Predictor
-from src.utils.history import History
+from src.data import Collate, LmdbDataset, JsonDataset, Database, Vocabulary
+from src.utils import Predictor, History
 
 # Args
 parser = argparse.ArgumentParser()
@@ -246,14 +244,15 @@ def train():
         task.logger.report_plotly('F1-Score', 'F1-Score', figure=f1_fig)
         task.logger.report_plotly('Accuracy', 'Accuracy', figure=acc_fig)
 
+    model.to(f'cuda:{DEVICE_IDX}')
+
     # Predict few samples from test set
-    predictions_visualizer = Predictor(img_size=IMG_SIZE, device=DEVICE_IDX, output_path=VAL_EXAMPLES_PATH, input_channels=INPUT_CHANNELS)
+    
+    predictions_visualizer = Predictor(output_path=VAL_EXAMPLES_PATH, input_channels=INPUT_CHANNELS)
     predictions_visualizer.caption_dataloader(dataloader=dataloader_valid, model=model)
     if CML_ENABLED:
         for image in os.listdir(VAL_EXAMPLES_PATH):
             task.logger.report_image(title='Predictions', series=image, local_path=os.path.join(VAL_EXAMPLES_PATH, image), iteration=0)
-    
-    model.to(f'cuda:{DEVICE_IDX}')
     
     # Save model as torchscript
     model.bfloat16().to_torchscript(TS_BF16_WEIGHTS)
@@ -277,7 +276,7 @@ def test():
         task.connect_configuration(CONFIG)
 
     # Load trained model
-    model = ViTSTRTransducer.load_from_checkpoint(WEIGHTS_FULL_PATH, map_location=f'cuda:{DEVICE_IDX}', training=False).eval()
+    model = ViTSTRTransducer.load_from_checkpoint(WEIGHTS_FULL_PATH, training=False).eval()
     model.freeze()
     img_size = model.input_size
     
@@ -301,8 +300,10 @@ def test():
     avg_inference_time = (end_time - start_time) / len(dataloader_test)
     print(f'Inference time: {avg_inference_time:.4f}s per image')
 
+    model.to(f'cuda:{DEVICE_IDX}')
+
     # Save predictions
-    predictions_visualizer = Predictor(img_size=img_size, device=DEVICE_IDX, output_path=TEST_EXAMPLES_PATH, input_channels=INPUT_CHANNELS)
+    predictions_visualizer = Predictor(output_path=TEST_EXAMPLES_PATH, input_channels=INPUT_CHANNELS)
     predictions_visualizer.caption_dataloader(dataloader=dataloader_test, model=model)
 
     

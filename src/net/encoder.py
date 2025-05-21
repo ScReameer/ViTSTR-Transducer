@@ -4,8 +4,7 @@ import os
 
 import torch
 from torch import nn
-from timm.models.vision_transformer import VisionTransformer
-from timm.models.vision_transformer import vit_tiny_patch16_224
+from timm.models.vision_transformer import VisionTransformer, vit_tiny_patch16_224
 
 
 class ViTEncoder(nn.Module):
