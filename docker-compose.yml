@@ -1,0 +1,10 @@
+services:
+  vitstr:
+    image: vitstr:latest
+    build: ./
+    volumes:
+      - ${DATASET_PATH}:/dataset:ro
+      - ./outputs:/src/outputs:rw
+      - ./vitstr_backbone:/src/vitstr_backbone:rw
+    ipc: host
+    gpus: all

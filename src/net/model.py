@@ -1,60 +1,84 @@
-from ..data_processing.vocabulary import Vocabulary
-from .vit_encoder import ViTSTR
 import torch
-import lightning as L
+import numpy as np
+from pytorch_lightning import LightningModule
+from torchmetrics.functional.classification import multiclass_accuracy, multiclass_f1_score
 from torch import nn, optim
+from torch.nn.attention import sdpa_kernel, SDPBackend
 
-class ViTSTRTransducer(L.LightningModule):
+from .losses import CrossEntropyLossSequence, FocalLoss
+from ..data import Vocabulary
+from .encoder import ViTEncoder
+
+
+class ViTSTRTransducer(LightningModule):
     def __init__(
         self,
+        input_size: tuple[int, int],
         input_channels: int,
         d_model: int,
         num_heads: int,
         vocab: Vocabulary,
-        lr_max: float,
-        lr_min: float,
-        t_max: int,
-        dropout_rate=0.2
+        lr: float,
+        weight_decay: float,
+        gamma: float,
+        backbone_type: str,
+        dropout_rate: float,
+        loss: str,
+        training: bool,
+        sdp_backend = SDPBackend.FLASH_ATTENTION
     ) -> None:
-        """ViTSTR-Transducer implementation for text recognition
+        """
+        Initializes the ViTSTRTransducer model.
 
         Args:
-            `input_channels` (`int`): number of channels of image
-            `d_model` (`int`): image feature map size, text embedding size and also hidden size of Transformer
-            `num_heads` (`int`): heads of TransformerDecoder and VisionTransformer, `d_model` must be divisible by `num_heads` without remainder
-            `vocab` (`Vocabulary`): vocabulary instance of `src.data_processing.vocabulary.Vocabulary`
-            `lr_max` (`float`): maximum learning rate
-            `lr_min` (`float`): minimum learning rate
-            `t_max` (`int`): cosine annealing T_max
-            `dropout_rate` (`float`, optional): droupout regularization. Defaults to `0.2`.
+            input_size (tuple[int, int]): The size of the input image.
+            input_channels (int): The number of channels in the input image.
+            d_model (int): The size of the input feature map, text embedding, and hidden size of the Transformer.
+            num_heads (int): The number of heads in the TransformerDecoderLayer.
+            vocab (Vocabulary): The vocabulary instance.
+            lr (float): The learning rate.
+            gamma (float): The gamma value for the ExponentialLR scheduler.
+            dropout_rate (float, optional): The dropout rate.
+            pretrained (bool, optional): Whether to use a pre-trained model.
+            loss (str, optional): The loss function to use.
         """
         super().__init__()
         self.vocab = vocab
         self.vocab_size = len(self.vocab)
-        self.pad_idx = self.vocab.char2idx['<PAD>']
-        self.lr_max = lr_max
-        self.lr_min = lr_min
-        self.t_max = t_max
+        self.pad_idx = self.vocab.pad_token_idx
+        self.lr = lr
+        self.weight_decay = weight_decay
+        self.gamma = gamma
+        self.input_size = input_size
         self.input_channels = input_channels
         self.d_model = d_model
         self.num_heads = num_heads
+        self.backbone_type = backbone_type
         self.dropout_rate = dropout_rate
-        # Save parameters into hparams.yaml
+        self.training = training
+        self.sdp_backend = sdp_backend
+        # Save params
         self.save_hyperparameters(dict(
             vocab_size=self.vocab_size,
-            lr_max=self.lr_max,
-            lr_min=self.lr_min,
-            t_max=self.t_max,
+            lr=self.lr,
+            weight_decay=self.weight_decay,
+            loss=loss,
+            gamma=self.gamma,
             d_model=self.d_model,
             num_heads=self.num_heads,
-            input_channels=self.input_channels
+            input_channels=self.input_channels,
+            vocab=self.vocab,
+            input_size=self.input_size,
+            backbone_type=self.backbone_type,
+            dropout_rate=self.dropout_rate,
         ))
-        # Visual Transformer as encoder
-        self.encoder = ViTSTR(
+        # VisualTransformer as encoder
+        self.encoder = ViTEncoder(
+            backbone_type=self.backbone_type,
+            training=self.training,
+            img_size=self.input_size,
             in_chans=self.input_channels,
-            embed_dim=self.d_model, 
-            num_classes=self.vocab_size,
-            num_heads=self.num_heads,
+            embed_dim=self.d_model,
             drop_rate=self.dropout_rate
         )
         # Transformer as decoder
@@ -70,61 +94,57 @@ class ViTSTRTransducer(L.LightningModule):
             nn.Sigmoid()
         )
         self.linear = nn.Linear(self.d_model, self.vocab_size)
-
-    def _compute_loss(self, imgs: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-        target_input = target[:, :-1] # [B, seq] without <END>
-        target_expected = target[:, 1:] # [B, seq] without <START>
-        tgt_mask = self._get_tgt_mask(target_input.size(1))
-        # We want to predict target_expected from target_input
-        predicted = self.forward(imgs, target_input, tgt_mask) # [B, seq, vocab_size]
-        loss = nn.functional.cross_entropy(
-            predicted.contiguous().view(-1, self.vocab_size), # [B*seq, vocab_size]
-            target_expected.contiguous().view(-1), # [B*seq]
-            ignore_index=self.pad_idx, # Ignore <PAD> token
-        )
-        return loss
+        if loss == 'focal_loss':
+            self.loss = FocalLoss(gamma=2, ignore_index=self.pad_idx)
+        elif loss == 'cross_entropy':
+            self.loss = CrossEntropyLossSequence(ignore_index=self.pad_idx)
+        else:
+            raise ValueError(f"Unsupported loss: {loss}")
        
-    def training_step(self, batches, batch_idx) -> torch.Tensor:
+    def training_step(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> torch.Tensor:
         self.train()
-        loss = .0
-        for batch in batches: # (dl_1, dl_2, ..., dl_n) for multiple dataloaders
-            imgs, target = batch
-            loss += self._compute_loss(imgs, target)
-        loss /= len(batches)
-        self.log('train_CE', loss, prog_bar=True, logger=self.logger, on_epoch=False, on_step=True)
+        imgs, target = batch
+        loss, f1, acc = self._compute_loss_and_metrics(imgs, target)
+        self.log('train_loss', loss, prog_bar=True, logger=self.logger, on_epoch=False, on_step=True)
+        self.log('train_f1', f1, prog_bar=False, logger=self.logger, on_epoch=False, on_step=True)
+        self.log('train_acc', acc, prog_bar=False, logger=self.logger, on_epoch=False, on_step=True)
         return loss
     
-    def validation_step(self, batch, batch_idx) -> torch.Tensor:
+    @torch.no_grad()
+    def validation_step(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> torch.Tensor:
         self.eval()
-        with torch.no_grad():
-            imgs, target = batch
-            loss = self._compute_loss(imgs, target)
-            self.log('val_CE', loss, prog_bar=True, logger=self.logger, on_epoch=True, on_step=False)
-            return loss
+        imgs, target = batch
+        loss, f1, acc = self._compute_loss_and_metrics(imgs, target)
+        self.log('val_loss', loss, prog_bar=True, logger=self.logger, on_epoch=True, on_step=False)
+        self.log('val_f1', f1, prog_bar=True, logger=self.logger, on_epoch=True, on_step=False)
+        self.log('val_acc', acc, prog_bar=True, logger=self.logger, on_epoch=True, on_step=False)
+        return loss
         
-    def test_step(self, batch, batch_idx) -> torch.Tensor:
+    @torch.no_grad()
+    def test_step(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> torch.Tensor:
         self.eval()
-        with torch.no_grad():
-            imgs, target = batch
-            loss = self._compute_loss(imgs, target)
-            self.log('test_CE', loss, prog_bar=True, logger=None)
-            return loss
+        imgs, target = batch
+        loss, f1, acc = self._compute_loss_and_metrics(imgs, target)
+        self.log('test_loss', loss, prog_bar=True, logger=None)
+        self.log('test_f1', f1, prog_bar=True, logger=None)
+        self.log('test_acc', acc, prog_bar=True, logger=None)
+        return loss
         
-    def configure_optimizers(self) -> dict:
-        optimizer = optim.RAdam(self.parameters(), lr=self.lr_max)
-        cosine_scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=self.t_max, eta_min=self.lr_min)
+    def configure_optimizers(self):
+        # RAdamW
+        optimizer = optim.RAdam(self.parameters(), lr=self.lr, weight_decay=self.weight_decay, decoupled_weight_decay=True)
+        exponential_scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma=self.gamma)
         return {
             'optimizer': optimizer,
-            'lr_scheduler': cosine_scheduler
+            'lr_scheduler': exponential_scheduler
         }
     
-    def forward(self, imgs: torch.Tensor, target: torch.Tensor, tgt_mask: torch.Tensor) -> torch.Tensor:
+    def forward(self, imgs: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         """Forward pass of the ViTSTR-Transducer.
 
         Args:
             `imgs` (`torch.Tensor`): Input images of shape `[B, C, H, W].`
             `target` (`torch.Tensor`): Target captions of shape `[B, seq]`.
-            `tgt_mask` (`torch.Tensor`): Mask for target captions of shape `[B, seq]`.
 
         Returns:
             `output` (`torch.Tensor`): Output tensor of shape `[B, seq, d_model]`
@@ -134,68 +154,79 @@ class ViTSTRTransducer(L.LightningModule):
             It first extracts the visual features using the encoder module. Then, it embeds the target captions using the embedding module.
             Next, it computes the linguistic features by passing the visual features and embedded target captions through the transformer module.
             The alpha value is computed by applying a feed-forward neural network (ffn) to the element-wise product of the visual features and linguistic features.
-            Finally, the output tensor is computed by combining the visual features and linguistic features using the linear module, with the contribution of each factor controlled by the alpha value.
+            Finally, the output tensor is computed by combining the visual features and linguistic features using the linear module, 
+            with the contribution of each factor controlled by the alpha value.
         """
-        
         seqlen = target.shape[1]
         visual_features = self.encoder.forward(imgs, seqlen) # [B, seqlen, d_model]
         embedding = self.embedding(target) # [B, seqlen, d_model]
-        # Predict target embedding using visual_features from encoder as memory
-        linguistic_features = self.transformer(memory=visual_features, tgt=embedding, tgt_mask=tgt_mask)
+        attn_mask = torch.triu(torch.full((seqlen, seqlen), float('-inf'), device=target.device), diagonal=1)
+        linguistic_features = self.transformer.forward(memory=visual_features, tgt=embedding, tgt_is_causal=True, tgt_mask=attn_mask)
         alpha = self.ffn(visual_features * linguistic_features)
         output = self.linear((1 - alpha)*visual_features + alpha*linguistic_features)
         return output # [B, seqlen, vocab_size]
     
-    def predict(self, image: torch.Tensor, max_length=27) -> str:
-        """Predict caption to image
-
-        Args:
-            `image` (`Tensor`): preprocessed (resized and normalized) image of shape `[C, H, W]`
-            `max_length` (`int`, optional): max output sentence length. Defaults to `27`. (2 extra tokens for `<START>` and `<END>`)
-
-        Returns:
-            `caption` (`str`): predicted caption for image
+    @torch.inference_mode()
+    def predict(self, x: torch.Tensor, max_length: int = 30) -> tuple[list[str], list[torch.Tensor]]:
         """
-        device = image.device
-        self.eval().to(device)
-        image = image.unsqueeze(0)
-        y_input = torch.tensor([[self.vocab.char2idx['<START>']]], dtype=torch.long, device=device)
-
+        Predict the text and confidence scores for a batch of input tensors.
+        Args:
+            x (torch.Tensor): The input tensor of shape (batch_size, sequence_length).
+            max_length (int): The maximum length of the predicted text.
+        Returns:
+            tuple[list[str], list[torch.Tensor]]: A tuple containing the predicted text and confidence scores.
+        """
+        x = x.to(self.device).to(self.dtype)
+        y_input = torch.tensor([[self.vocab.start_token_idx] for _ in range(len(x))], dtype=torch.int, device=self.device)
         for _ in range(max_length):
-            # Get target mask
-            tgt_mask = self._get_tgt_mask(y_input.size(1)).to(device)
-            with torch.no_grad():
-                pred: torch.Tensor = self(image, y_input, tgt_mask)
-                next_item = pred.argmax(-1)[0, -1].item()
-                next_item = torch.tensor([[next_item]], device=device)
-                # Concatenate previous input with predicted best word
-                y_input = torch.cat((y_input, next_item), dim=1)
-                # Stop if model predicts end of sentence
-                if next_item.view(-1).item() == self.vocab.char2idx['<END>']:
-                    break
-                
-        result = y_input.view(-1)[1:-1]
-        # return ''.join([self.vocab.idx2char[idx] for idx in result])
-        return result
+            pred = self.forward(x, y_input)
+            next_item = pred.argmax(-1)[..., -1:]
+            if torch.all(next_item.reshape(-1) == self.vocab.end_token_idx):
+                break
+            y_input = torch.cat((y_input, next_item), dim=1)
+        confidence = torch.softmax(pred, dim=-1).max(-1).values
+        output_prediction = []
+        output_confidence = []
+        for i in range(y_input.shape[0]):
+            del_indexes = []
+            # ['<START>', 'something', '...', '<END>', '<END>', '<END>']
+            result = self.vocab.decode(y_input[i]) # [N, ]
+            conf = confidence[i] # [N, ]
+            end_idx = next((i for i, s in enumerate(result) if self.vocab.idx2token[self.vocab.end_token_idx] in s), None)
+            if end_idx:
+                result = result[:end_idx]
+                conf = conf[:end_idx]
+            for token in self.vocab.service_tokens.values():
+                for j in range(len(result)):
+                    if result[j] == token:
+                        del_indexes.append(j)
+            result = ''.join(np.delete(result, del_indexes))
+            conf = np.delete(conf.half().cpu(), del_indexes)
+            output_prediction.append(result)
+            output_confidence.append(conf)
+        return output_prediction, output_confidence
     
-    def _get_tgt_mask(self, size: int) -> torch.Tensor:
-        """Generates a square matrix where the each row allows one word more to be seen
-
-        Args:
-            `size` (`int`): sequence length of target, for example if target have shape `[B, S]` then `size = S`
-
-        Returns:
-            `mask` (`torch.Tensor`): target mask for transformer
-        """
-        mask = torch.tril(torch.ones(size, size) == 1).float() # Lower triangular matrix
-        mask = mask.masked_fill(mask == 0, float('-inf')) # Convert zeros to -inf
-        mask = mask.masked_fill(mask == 1, float(0.0)) # Convert ones to 0
-        
-        # EX for size=5:
-        # [[0., -inf, -inf, -inf, -inf],
-        #  [0.,   0., -inf, -inf, -inf],
-        #  [0.,   0.,   0., -inf, -inf],
-        #  [0.,   0.,   0.,   0., -inf],
-        #  [0.,   0.,   0.,   0.,   0.]]
-        
-        return mask.to(self.device)
+    def _compute_loss_and_metrics(self, imgs: torch.Tensor, target: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        target_input = target[:, :-1] # [B, seq] without <END>
+        target_expected = target[:, 1:] # [B, seq] without <START>
+        # We want to predict target_expected from target_input
+        with sdpa_kernel(self.sdp_backend):
+            predicted = self.forward(imgs, target_input) # [B, seq, vocab_size]
+        loss = self.loss(predicted, target_expected)
+        predicted = predicted.permute(0, 2, 1) # [B, vocab_size, seq]
+        # Compute metrics across sequence dimension
+        f1 = multiclass_f1_score(
+            predicted, 
+            target_expected, 
+            num_classes=self.vocab_size,
+            ignore_index=self.pad_idx,
+            multidim_average='samplewise'
+        ).mean()
+        acc = multiclass_accuracy(
+            predicted,
+            target_expected, 
+            num_classes=self.vocab_size,
+            ignore_index=self.pad_idx,
+            multidim_average='samplewise'
+        ).mean()
+        return loss, f1, acc
