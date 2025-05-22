@@ -21,14 +21,14 @@ ViTSTR-T:
   TRAIN:
     BATCH_SIZE: 64
     FOLDERS: ['train', 'val'] # Two folder names with train and eval data
-    MAX_EPOCHS: 1
+    MAX_EPOCHS: 1 # 1 is enough if you have big train dataset (>5m images)
     LOSS: 'focal_loss' # "focal_loss" or "cross_entropy". In practice, Focal Loss converges faster for this task
     LR: 5e-5 # Initial learning rate
     WEIGHT_DECAY: 1e-3 # decoupled weight decay
     DROPOUT_RATE: 0.1
     GAMMA: 0.98 # Exponential multiplier for learning rate per epoch
-    PATIENCE: 50 # EarlyStopping 'patience' arg
-    MIN_DELTA: 1e-3 # EarlyStopping 'min_delta' arg
+    PATIENCE: 50 # EarlyStopping 'patience' parameter
+    MIN_DELTA: 1e-3 # EarlyStopping 'min_delta' parameter
     # Attention backend for training (don't affect inference after loading *.ckpt or *.torchscript model), default is "FLASH_ATTENTION".
     # You can choose one of the following: ["MATH", "FLASH_ATTENTION", "EFFICIENT_ATTENTION", "CUDNN_ATTENTION"].
     # If you want to add this during the inference, follow these instructions (you can use this context manager for entire forward method):
@@ -38,5 +38,5 @@ ViTSTR-T:
     # https://github.com/Lightning-AI/pytorch-lightning/blob/master/src/lightning/pytorch/trainer/trainer.py
     PRECISION: "bf16-mixed" 
   TEST:
-    BATCH_SIZE: 1
+    BATCH_SIZE: 1 # Batch size for testing. Leave it 1 to test average inference performance per image, otherwise you can set a larger batch size.
     FOLDER: 'test' # One folder name with test data
