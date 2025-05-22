@@ -96,7 +96,7 @@ Datasets can be in two different formats:
     
   JSON file must contain 2 fields: `description` (**real target**) and `name` (**image filename without extension**)
   ```json
-  {"description": "kioto", "name": "2"} # 
+  {"description": "kioto", "name": "2"}
   ```
   >`kioto` is real target (what should be recognized by model) and `2` is image filename without extension, which could be `2.jpg` or `2.png` etc.
 
