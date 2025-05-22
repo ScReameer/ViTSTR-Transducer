@@ -48,10 +48,9 @@ class ViTEncoder(nn.Module):
                     backbone = 'vitstr_backbone/vitstr_base_patch16_224_aug.pth'
                     link = r'https://github.com/roatienza/deep-text-recognition-benchmark/releases/download/v0.1.0/vitstr_base_patch16_224_aug.pth'
                 
-                if not os.path.exists(backbone):
-                    os.system(f'wget {link} -P {backbone.split(r"/")[0]}')
-
                 if training:
+                    if not os.path.exists(backbone):
+                        os.system(f'wget {link} -P {backbone.split(r"/")[0]}')
                     loaded_backbone: OrderedDict = torch.load(backbone, weights_only=True)
                     fixed_weights = OrderedDict()
                     # Align keys for compatibility
