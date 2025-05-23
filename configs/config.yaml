@@ -1,4 +1,5 @@
 LABELS: '!%&,-./0123456789=_abcdefghijklmnopqrstuvwxyz' # Vocabulary
+CASE_SENSITIVE: False # True if you want to treat labels as case sensitive
 ClearML:
   ENABLED: False # True if you have configured clearml.conf, else False
   PROJECT: 'ViTSTR-T' # ClearML project name

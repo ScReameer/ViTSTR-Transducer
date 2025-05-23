@@ -2,15 +2,17 @@ import torch
 
 
 class Vocabulary:
-    def __init__(self, labels: list[str] | str):
+    def __init__(self, labels: list[str] | str, case_sensitive: bool = False):
         """
         Args:
             labels (list[str] | str): List of labels or a single label string.
+            case_sensitive (bool): Whether to treat labels as case sensitive.
         """
         self.idx2token = {0: "<PAD>", 1: '<START>',  2: "<END>"}
         self.token2idx = {"<PAD>": 0, "<START>": 1, "<END>": 2}
         self.service_tokens = self.idx2token.copy()
         self.labels = labels
+        self.case_sensitive = case_sensitive
         self._build()
         del self.labels
 
@@ -25,7 +27,8 @@ class Vocabulary:
     
     def encode(self, text: str) -> torch.Tensor:
         """Encodes a string into a sequence of tokens"""
-        text = text.lower()
+        if not self.case_sensitive:
+            text = text.lower()
         for char in text:
             if char not in self.token2idx:
                 text = text.replace(char, '')

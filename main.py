@@ -45,6 +45,7 @@ NUM_WORKERS = CONFIG['ViTSTR-T']['NUM_WORKERS'] or cpu_count() - 1
 DATASET_PATH = Path(CONFIG['DATASET']['PATH'])
 DATASET_TYPE = CONFIG['DATASET']['TYPE']
 LABELS = CONFIG['LABELS']
+CASE_SENSITIVE = bool(CONFIG['CASE_SENSITIVE'])
 CML_ENABLED = bool(CONFIG['ClearML']['ENABLED'])
 PROJECT_NAME = CONFIG['ClearML']['PROJECT']
 TASK_NAME = CONFIG['ClearML']['TASK']
@@ -134,7 +135,7 @@ def train():
         task.connect_configuration(CONFIG)
 
     # Initialize datasets
-    vocab = Vocabulary(LABELS)
+    vocab = Vocabulary(LABELS, case_sensitive=CASE_SENSITIVE)
     collate = Collate(pad_idx=vocab.pad_token_idx)
     match DATASET_TYPE:
         case 'json':
@@ -278,7 +279,6 @@ def test():
     # Load trained model
     model = ViTSTRTransducer.load_from_checkpoint(WEIGHTS_FULL_PATH, training=False).eval()
     model.freeze()
-    img_size = model.input_size
     
     # Test dataloader
     vocab = model.vocab
