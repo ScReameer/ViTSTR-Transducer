@@ -1,4 +1,4 @@
-clearml==1.18.0
+clearml==2.0.2
 albumentations
 pillow==11.0.0
 pandas==2.2.3
